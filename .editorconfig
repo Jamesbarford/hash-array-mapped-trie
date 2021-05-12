@@ -1,0 +1,14 @@
+root = true
+# Unix-style newlines with a newline ending every file
+[*.{h,c,sh}]
+end_of_line = lf
+insert_final_newline = true
+
+[*.{h,c,sh}]
+indent_style = tab
+indent_size = 2
+charset = utf-8
+
+[{Makefile}]
+indent_style = tab
+indent_size = 2
