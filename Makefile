@@ -1,5 +1,5 @@
 OUT = build
-TARGET = testing.out
+TARGET = hamt-test.out
 CC = cc
 CFLAGS = -Wall -Werror -Wextra -Wpedantic -g -O0
 
