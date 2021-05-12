@@ -7,7 +7,7 @@ Some examples have been provided in `main.c`, along with a dictionary of `466550
 ```sh
 $ mkdir build
 $ make
-$ ./main.out
+$ ./testing.out
 ```
 
 ## Usage
