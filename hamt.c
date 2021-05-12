@@ -444,14 +444,14 @@ void *hamt_get(hamt_node_t *hamt, char *key) {
 				int len = popcount(node->bitmap);
 				for (int i = 0; i < len; ++i) {
 					hamt_node_t *child = node->children[i];
-					if (child != NULL && strcmp(child->key, key) == 0)
+					if (child != NULL && exact_str_match(child->key, key))
 						return child->value;
 				}	
 				return NULL;
 			}
 	
 			case LEAF: {
-				if (node && strcmp(node->key, key) == 0) {
+				if (node != NULL && exact_str_match(node->key, key)) {
 					return node->value;
 				}
 				return NULL;
