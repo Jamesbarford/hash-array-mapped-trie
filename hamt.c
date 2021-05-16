@@ -101,9 +101,8 @@ static hamt_node_t *create_collision(unsigned int hash, hamt_node_t **children,
 	return create_node(hash, NULL, NULL, COLLISON, children, bitmap);
 }
 
-static hamt_node_t *create_branch(unsigned int hash, hamt_node_t **children,
-		unsigned long bitmap) {
-	return create_node(hash, NULL, NULL, BRANCH, children, bitmap);
+static hamt_node_t *create_branch(unsigned int hash, hamt_node_t **children) {
+	return create_node(hash, NULL, NULL, BRANCH, children, 0);
 }
 
 
@@ -334,11 +333,11 @@ static hamt_node_t *handle_leaf_insert(insert_instruction_t *ins) {
 	unsigned int mask = get_mask(frag);
 
 	if (prev_frag == frag) {
-		hamt_node_t *new_branch = create_branch(mask, alloc_children(CAPACITY), 0);
+		hamt_node_t *new_branch = create_branch(mask, alloc_children(CAPACITY));
 
 		new_branch->children[0] = insert(
 			insert(
-				create_branch(0, alloc_children(CAPACITY), 0),
+				create_branch(0, alloc_children(CAPACITY)),
 					ins->hash, ins->key, ins->value, ins->depth + 1
 			),
 			ins->node->hash, ins->node->key, ins->node->value, ins->depth + 1
@@ -348,7 +347,7 @@ static hamt_node_t *handle_leaf_insert(insert_instruction_t *ins) {
 	}
 
 	hamt_node_t *child = create_leaf(ins->hash, ins->key, ins->value);
-	hamt_node_t *new_branch = create_branch(mask | prev_mask, alloc_children(CAPACITY), 0);
+	hamt_node_t *new_branch = create_branch(mask | prev_mask, alloc_children(CAPACITY));
 
 	if (new_branch->children == NULL) return NULL;
 	if (prev_frag < frag) {
@@ -369,7 +368,7 @@ static hamt_node_t *handle_branch_insert(insert_instruction_t *ins) {
 
 	// Branch is full
 	if (ins->node->hash & mask) {
-		hamt_node_t *new_branch = create_branch(ins->node->hash, ins->node->children, 0);
+		hamt_node_t *new_branch = create_branch(ins->node->hash, ins->node->children);
 		hamt_node_t *child = new_branch->children[pos];
 
 		// go to next depth, inserting a branch as the child
@@ -378,7 +377,7 @@ static hamt_node_t *handle_branch_insert(insert_instruction_t *ins) {
 
 		return new_branch;
 	} else {
-		hamt_node_t *new_branch = create_branch(ins->node->hash | mask, ins->node->children, 0);
+		hamt_node_t *new_branch = create_branch(ins->node->hash | mask, ins->node->children);
 		hamt_node_t *new_child = create_leaf(ins->hash, ins->key, ins->value);
 
 		unsigned int size = popcount(ins->node->hash);
