@@ -54,7 +54,6 @@ typedef struct hamt_node_t {
 	struct hamt_node_t **children;
 } hamt_node_t;
 
-
 typedef struct insert_instruction_t {
 	hamt_node_t *node;
 	unsigned int hash;
@@ -66,6 +65,8 @@ typedef struct insert_instruction_t {
 static hamt_node_t *handle_collision_insert(insert_instruction_t *ins);
 static hamt_node_t *handle_branch_insert(insert_instruction_t *ins);
 static hamt_node_t *handle_leaf_insert(insert_instruction_t *ins);
+
+static void resize_children(hamt_node_t *node, unsigned int size);
 
 // hamt node creation methods
 static hamt_node_t *create_node(int hash, char *key, void *value,
@@ -206,24 +207,22 @@ static hamt_node_t **alloc_children(int size) {
  * [a,b,c,d,f,g]
  */
 static void insert_child(hamt_node_t *parent, hamt_node_t *child,
-		unsigned int position) {
+		unsigned int position, unsigned int size) {
+	resize_children(parent, size);
 
-	unsigned int size = popcount(parent->bitmap);
-	hamt_node_t **new_children = alloc_children(size + 1);
-	
-	if (new_children == NULL) return;
+	hamt_node_t *temp[sizeof(hamt_node_t *) * size];
+
 	unsigned int i = 0, j = 0;
 
 	while (j < position) {
-		new_children[i++] = parent->children[j++];
+		temp[i++] = parent->children[j++];
 	}
-	new_children[i++] = child;
+	temp[i++] = child;
 	while (j < size) {
-		new_children[i++] = parent->children[j++];
+		temp[i++] = parent->children[j++];
 	}
-	parent->children = new_children;
 
-	update_bitmap(parent);
+	memcpy(parent->children, temp, sizeof(hamt_node_t *) * (size + 1));
 }
 
 /**
@@ -232,14 +231,17 @@ static void insert_child(hamt_node_t *parent, hamt_node_t *child,
  *
  * TODO: this is over allocating
  */
-static void resize_children(hamt_node_t *node) {
-	unsigned int child_count = popcount(node->bitmap);
+static void resize_children(hamt_node_t *node, unsigned int size) {
+	if (size % CAPACITY == 0) {
+		unsigned int new_size = sizeof(hamt_node_t) * (CAPACITY + size);
+		hamt_node_t **children = NULL;
 
-	if (child_count % CAPACITY == 0) {
-		int new_size = sizeof(hamt_node_t *) * (CAPACITY + child_count);
+		if (node->children == NULL) {
+			children = alloc_children(CAPACITY);
+		} else {
+			children = (hamt_node_t **)realloc(node->children, new_size);
+		}
 
-		hamt_node_t **children = (hamt_node_t **)realloc(node->children, new_size);
-		if (children == NULL) return; // out of memory
 		node->children = children;
 	}
 }
@@ -313,8 +315,9 @@ static hamt_node_t *handle_leaf_insert(insert_instruction_t *ins) {
 		}
 
 		unsigned long new_bitmap = 3;
-		hamt_node_t *collision_node = create_collision(ins->hash, NULL, new_bitmap);
-		collision_node->children = alloc_children(2);
+
+		hamt_node_t *collision_node = create_collision(ins->hash,
+			alloc_children(CAPACITY), new_bitmap);
 
 		if (collision_node->children == NULL) return NULL;
 
@@ -331,14 +334,11 @@ static hamt_node_t *handle_leaf_insert(insert_instruction_t *ins) {
 	unsigned int mask = get_mask(frag);
 
 	if (prev_frag == frag) {
-		hamt_node_t *new_branch = create_branch(mask, NULL, 1);
-		new_branch->children = alloc_children(1);
-		
-		if (new_branch->children == NULL) return NULL;
+		hamt_node_t *new_branch = create_branch(mask, alloc_children(CAPACITY), 0);
 
 		new_branch->children[0] = insert(
 			insert(
-				create_branch(0, alloc_children(1), 0),
+				create_branch(0, alloc_children(CAPACITY), 0),
 					ins->hash, ins->key, ins->value, ins->depth + 1
 			),
 			ins->node->hash, ins->node->key, ins->node->value, ins->depth + 1
@@ -347,10 +347,8 @@ static hamt_node_t *handle_leaf_insert(insert_instruction_t *ins) {
 		return new_branch;
 	}
 
-	unsigned long new_bitmap = 3;
 	hamt_node_t *child = create_leaf(ins->hash, ins->key, ins->value);
-	hamt_node_t *new_branch = create_branch(mask | prev_mask, NULL, new_bitmap);
-	new_branch->children = alloc_children(2);
+	hamt_node_t *new_branch = create_branch(mask | prev_mask, alloc_children(CAPACITY), 0);
 
 	if (new_branch->children == NULL) return NULL;
 	if (prev_frag < frag) {
@@ -371,23 +369,20 @@ static hamt_node_t *handle_branch_insert(insert_instruction_t *ins) {
 
 	// Branch is full
 	if (ins->node->hash & mask) {
-		hamt_node_t *new_branch = create_branch(ins->node->hash, ins->node->children,
-				ins->node->bitmap);
-		hamt_node_t *child = ins->node->children[pos];
+		hamt_node_t *new_branch = create_branch(ins->node->hash, ins->node->children, 0);
+		hamt_node_t *child = new_branch->children[pos];
 
-		resize_children(new_branch);
 		// go to next depth, inserting a branch as the child
 		replace_child(new_branch, pos, insert(child, ins->hash, ins->key, ins->value,
 					ins->depth + 1));
 
 		return new_branch;
 	} else {
-		hamt_node_t *new_branch = create_branch(ins->node->hash | mask, ins->node->children,
-				ins->node->bitmap);
-		hamt_node_t *child = create_leaf(ins->hash, ins->key, ins->value);
+		hamt_node_t *new_branch = create_branch(ins->node->hash | mask, ins->node->children, 0);
+		hamt_node_t *new_child = create_leaf(ins->hash, ins->key, ins->value);
 
-		resize_children(new_branch);
-		insert_child(new_branch, child, pos);
+		unsigned int size = popcount(ins->node->hash);
+		insert_child(new_branch, new_child, pos, size);
 
 		return new_branch;
 	}
@@ -406,8 +401,8 @@ static hamt_node_t *handle_collision_insert(insert_instruction_t *ins) {
 		}
 	}
 
-	resize_children(collision_node);
-	insert_child(collision_node, new_child, len);
+	insert_child(collision_node, new_child, len, len);
+	update_bitmap(collision_node);
 	return collision_node;
 }
 
