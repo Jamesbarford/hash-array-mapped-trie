@@ -48,7 +48,11 @@ enum NODE_TYPE {
 typedef struct hamt_node_t {
 	enum NODE_TYPE type;
 	unsigned int hash;
-	unsigned long bitmap;
+	/**
+	 * This is only used by the collision node and is a count of
+	 * the total number of children held in the collision node
+	 */
+	int bitmap;
 	char *key;
 	void *value;
 	struct hamt_node_t **children;
@@ -66,9 +70,7 @@ static hamt_node_t *handle_collision_insert(insert_instruction_t *ins);
 static hamt_node_t *handle_branch_insert(insert_instruction_t *ins);
 static hamt_node_t *handle_leaf_insert(insert_instruction_t *ins);
 
-static void resize_children(hamt_node_t *node, unsigned int size);
-
-// hamt node creation methods
+/*======= node constructors =====================*/
 static hamt_node_t *create_node(int hash, char *key, void *value,
 		enum NODE_TYPE type, hamt_node_t **children, unsigned long bitmap) {
 	hamt_node_t *node;
@@ -97,7 +99,7 @@ static hamt_node_t *create_leaf(unsigned int hash, char *key, void *value) {
 }
 
 static hamt_node_t *create_collision(unsigned int hash, hamt_node_t **children,
-		unsigned long bitmap) {
+		int bitmap) {
 	return create_node(hash, NULL, NULL, COLLISON, children, bitmap);
 }
 
@@ -105,8 +107,7 @@ static hamt_node_t *create_branch(unsigned int hash, hamt_node_t **children) {
 	return create_node(hash, NULL, NULL, BRANCH, children, 0);
 }
 
-
-/*======= hashing ======================*/
+/*======= hashing =========================*/
 /**
  * From Ideal hash trees Phil Bagley, page 3
  * https://lampwww.epfl.ch/papers/idealhashtrees.pdf
@@ -116,12 +117,12 @@ static const unsigned int SK5 = 0x55555555;
 static const unsigned int SK3 = 0x33333333;
 static const unsigned int SKF0 = 0xF0F0F0F;
 
-static inline int popcount(unsigned long bits) {
-	bits -= ((bits >> 1ul) & SK5);
-	bits = (bits & SK3)  + ((bits >> 2ul) & SK3);
-	bits = (bits & SKF0) + ((bits >> 4ul) & SKF0);
-	bits += bits >> 8ul;
-	return (bits + (bits >> 16ul)) & 0x3F;
+static inline int popcount(unsigned int bits) {
+	bits -= ((bits >> 1) & SK5);
+	bits = (bits & SK3)  + ((bits >> 2) & SK3);
+	bits = (bits & SKF0) + ((bits >> 4) & SKF0);
+	bits += bits >> 8;
+	return (bits + (bits >> 16)) & 0x3F;
 }
 
 /**
@@ -155,28 +156,13 @@ static unsigned int get_position(unsigned int hash, unsigned int frag) {
 	return popcount(hash & (get_mask(frag) - 1));
 }
 
-/**
- * Set bitmap to 1 if there are no children or shift the bit along
- * 
- * e.g (from left to right)
- * 00000000
- * add child:
- * 00000001
- * 
- * 00000001
- * add another child:
- * 00000011
- */
-static void update_bitmap(hamt_node_t *node) {	
-	if (node->bitmap == 0) node->bitmap = 1;
-	else node->bitmap |= node->bitmap << 1ul;
-}
-
 static void replace_child(hamt_node_t *node, unsigned int position,
 		hamt_node_t *child) {
 	node->children[position] = child;
 }
 
+/*======= Allocators ==============*/
+/* Assign `n` number of children, at least `CAPACITY` in size */
 static hamt_node_t **alloc_children(int size) {
 	hamt_node_t **children;
 
@@ -188,6 +174,28 @@ static hamt_node_t **alloc_children(int size) {
 	return children;
 }	
 
+/**
+ * If the Children are NULL, then `CAPACITY` is allocated.
+ * Else re-assign `CAPACITY` * size of children.
+ *
+ * Or a noop if there is enough space
+ */
+static void resize_children(hamt_node_t *node, unsigned int size) {
+	if (size % CAPACITY == 0) {
+		unsigned int new_size = sizeof(hamt_node_t) * (CAPACITY + size);
+		hamt_node_t **children = NULL;
+
+		if (node->children == NULL) {
+			children = alloc_children(CAPACITY);
+		} else {
+			children = (hamt_node_t **)realloc(node->children, new_size);
+		}
+
+		node->children = children;
+	}
+}
+
+/*======= moving / inserting child nodes ==============*/
 /**
  * If the slot is occupied in the bitmap move all the children over to
  * allow this child in
@@ -224,68 +232,15 @@ static void insert_child(hamt_node_t *parent, hamt_node_t *child,
 	memcpy(parent->children, temp, sizeof(hamt_node_t *) * (size + 1));
 }
 
-/**
- * Assign more space for children, assigns `CAPACITY` * size of children.
- * Or a noop if there is enough space
- *
- * TODO: this is over allocating
- */
-static void resize_children(hamt_node_t *node, unsigned int size) {
-	if (size % CAPACITY == 0) {
-		unsigned int new_size = sizeof(hamt_node_t) * (CAPACITY + size);
-		hamt_node_t **children = NULL;
-
-		if (node->children == NULL) {
-			children = alloc_children(CAPACITY);
-		} else {
-			children = (hamt_node_t **)realloc(node->children, new_size);
-		}
-
-		node->children = children;
-	}
-}
 
 static bool exact_str_match(char *str1, char *str2) {
 	return strcmp(str1, str2) == 0;
 }
 
-void visit_all(hamt_node_t *hamt, void(*visitor)(char *key, void *value)) {
-	if (hamt) {
-		switch (hamt->type) {
-			case BRANCH: {
-				int len = popcount(hamt->bitmap);
-				for (int i = 0; i < len; ++i) {
-					hamt_node_t *child = hamt->children[i];
-					visit_all(child, visitor);
-				}
-				return;
-			}
-			case COLLISON: {
-				int len = popcount(hamt->bitmap);
-				for (int i = 0; i < len; ++i) {
-					hamt_node_t *child = hamt->children[i];
-					visit_all(child, visitor);
-				}
-				return;
-			}
-			case LEAF: {
-				visitor(hamt->key, hamt->value);
-			}
-		}
-	}
-}
-
-static void print_node(char *key, void *value) {
-	(void)value;
-	printf("key: %s\n", key);
-}
-
-void print_hamt(hamt_node_t *hamt) {
-	visit_all(hamt, print_node);
-}
 
 /**
- * Node insertion 
+ * ======== Node insertion ========
+ *
  */
 static hamt_node_t *insert(hamt_node_t *node, unsigned int hash, char *key,
 		void *value, int depth) {
@@ -313,10 +268,8 @@ static hamt_node_t *handle_leaf_insert(insert_instruction_t *ins) {
 			return create_leaf(ins->hash, ins->key, ins->value);
 		}
 
-		unsigned long new_bitmap = 3;
-
 		hamt_node_t *collision_node = create_collision(ins->hash,
-			alloc_children(CAPACITY), new_bitmap);
+			alloc_children(CAPACITY), 2);
 
 		if (collision_node->children == NULL) return NULL;
 
@@ -388,12 +341,12 @@ static hamt_node_t *handle_branch_insert(insert_instruction_t *ins) {
 }
 
 static hamt_node_t *handle_collision_insert(insert_instruction_t *ins) {
-	unsigned int len = popcount(ins->node->bitmap);	
+	unsigned int len = ins->node->bitmap;	
 	hamt_node_t *new_child = create_leaf(ins->hash, ins->key, ins->value);
 	hamt_node_t *collision_node = create_collision(ins->node->hash,
 			ins->node->children, ins->node->bitmap);
 
-	for (unsigned int i = 0; i < len; ++i) {	
+	for (int i = 0; i < collision_node->bitmap; ++i) {	
 		if (exact_str_match(ins->node->children[i]->key, ins->key)) {
 			replace_child(ins->node, i, new_child);
 			return collision_node;
@@ -401,7 +354,8 @@ static hamt_node_t *handle_collision_insert(insert_instruction_t *ins) {
 	}
 
 	insert_child(collision_node, new_child, len, len);
-	update_bitmap(collision_node);
+	collision_node->bitmap++;
+	//update_bitmap(collision_node);
 	return collision_node;
 }
 
@@ -439,7 +393,7 @@ void *hamt_get(hamt_node_t *hamt, char *key) {
 			}
 
 			case COLLISON: {
-				int len = popcount(node->bitmap);
+				int len = node->bitmap;
 				for (int i = 0; i < len; ++i) {
 					hamt_node_t *child = node->children[i];
 					if (child != NULL && exact_str_match(child->key, key))
@@ -456,4 +410,40 @@ void *hamt_get(hamt_node_t *hamt, char *key) {
 			}
 		}	
 	}
+}
+
+/*=========== Printing / visiting functions ====== */
+void visit_all(hamt_node_t *hamt, void(*visitor)(char *key, void *value)) {
+	if (hamt) {
+		switch (hamt->type) {
+			case BRANCH: {
+				int len = popcount(hamt->bitmap);
+				for (int i = 0; i < len; ++i) {
+					hamt_node_t *child = hamt->children[i];
+					visit_all(child, visitor);
+				}
+				return;
+			}
+			case COLLISON: {
+				int len = popcount(hamt->bitmap);
+				for (int i = 0; i < len; ++i) {
+					hamt_node_t *child = hamt->children[i];
+					visit_all(child, visitor);
+				}
+				return;
+			}
+			case LEAF: {
+				visitor(hamt->key, hamt->value);
+			}
+		}
+	}
+}
+
+static void print_node(char *key, void *value) {
+	(void)value;
+	printf("key: %s\n", key);
+}
+
+void print_hamt(hamt_node_t *hamt) {
+	visit_all(hamt, print_node);
 }
