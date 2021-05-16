@@ -355,7 +355,7 @@ static hamt_node_t *handle_collision_insert(insert_instruction_t *ins) {
 
 	insert_child(collision_node, new_child, len, len);
 	collision_node->bitmap++;
-	//update_bitmap(collision_node);
+
 	return collision_node;
 }
 
