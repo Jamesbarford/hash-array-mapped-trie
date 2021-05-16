@@ -68,7 +68,6 @@ static hamt_node_t *handle_branch_insert(insert_instruction_t *ins);
 static hamt_node_t *handle_leaf_insert(insert_instruction_t *ins);
 
 // hamt node creation methods
-
 static hamt_node_t *create_node(int hash, char *key, void *value,
 		enum NODE_TYPE type, hamt_node_t **children, unsigned long bitmap) {
 	hamt_node_t *node;
@@ -78,12 +77,12 @@ static hamt_node_t *create_node(int hash, char *key, void *value,
 		return NULL;
 	}
 
-	node->hash = hash;
-	node->type = type;
-	node->key  = key;
-	node->value = value;
+	node->hash     = hash;
+	node->type     = type;
+	node->key      = key;
+	node->value    = value;
 	node->children = children;
-	node->bitmap = bitmap;
+	node->bitmap   = bitmap;
 
 	return node;
 }
@@ -106,10 +105,8 @@ static hamt_node_t *create_branch(unsigned int hash, hamt_node_t **children,
 	return create_node(hash, NULL, NULL, BRANCH, children, bitmap);
 }
 
-static unsigned int get_frag(unsigned int hash, int depth) {
-	return ((unsigned int)hash >> (BITS * depth)) & MASK;
-}
 
+/*======= hashing ======================*/
 /**
  * From Ideal hash trees Phil Bagley, page 3
  * https://lampwww.epfl.ch/papers/idealhashtrees.pdf
@@ -128,14 +125,14 @@ static inline int popcount(unsigned long bits) {
 }
 
 /**
- * This is Java's hashcode function 
+ * convert a string to a 32bit unsigned integer
  */
 static unsigned int get_hash(char *str) {
 	unsigned int hash = 0;	
 	char *ptr = str;
 
 	while (*ptr != '\0') {
-		hash = ((hash << BITS) - hash)	+ *(ptr++);
+		hash = ((hash << BITS) - hash) + *(ptr++);
 	}
 
 	return hash;
@@ -145,12 +142,17 @@ static unsigned int get_mask(unsigned int frag) {
 	return 1 << frag;
 }
 
+/* take 5 bits of the hash */
+static unsigned int get_frag(unsigned int hash, int depth) {
+	return ((unsigned int)hash >> (BITS * depth)) & MASK;
+}
+
 /**
- * Get the position of the array where the child is located
+ * Get the position in the array where the child is located
+ *
  */
 static unsigned int get_position(unsigned int hash, unsigned int frag) {
-	hash &= (get_mask(frag) -1);
-	return popcount(hash);
+	return popcount(hash & (get_mask(frag) - 1));
 }
 
 /**
@@ -310,7 +312,7 @@ static hamt_node_t *handle_leaf_insert(insert_instruction_t *ins) {
 			return create_leaf(ins->hash, ins->key, ins->value);
 		}
 
-		unsigned long new_bitmap = (1 << 0) | (1 << 1);
+		unsigned long new_bitmap = 3;
 		hamt_node_t *collision_node = create_collision(ins->hash, NULL, new_bitmap);
 		collision_node->children = alloc_children(2);
 
@@ -345,7 +347,7 @@ static hamt_node_t *handle_leaf_insert(insert_instruction_t *ins) {
 		return new_branch;
 	}
 
-	unsigned long new_bitmap = (1 << 0) | (1 << 1);
+	unsigned long new_bitmap = 3;
 	hamt_node_t *child = create_leaf(ins->hash, ins->key, ins->value);
 	hamt_node_t *new_branch = create_branch(mask | prev_mask, NULL, new_bitmap);
 	new_branch->children = alloc_children(2);
@@ -367,12 +369,14 @@ static hamt_node_t *handle_branch_insert(insert_instruction_t *ins) {
 	unsigned int mask = get_mask(frag);
 	unsigned int pos = get_position(ins->node->hash, frag);
 
+	// Branch is full
 	if (ins->node->hash & mask) {
 		hamt_node_t *new_branch = create_branch(ins->node->hash, ins->node->children,
 				ins->node->bitmap);
 		hamt_node_t *child = ins->node->children[pos];
 
 		resize_children(new_branch);
+		// go to next depth, inserting a branch as the child
 		replace_child(new_branch, pos, insert(child, ins->hash, ins->key, ins->value,
 					ins->depth + 1));
 
@@ -391,19 +395,19 @@ static hamt_node_t *handle_branch_insert(insert_instruction_t *ins) {
 
 static hamt_node_t *handle_collision_insert(insert_instruction_t *ins) {
 	unsigned int len = popcount(ins->node->bitmap);	
-	hamt_node_t *child = create_leaf(ins->hash, ins->key, ins->value);
+	hamt_node_t *new_child = create_leaf(ins->hash, ins->key, ins->value);
 	hamt_node_t *collision_node = create_collision(ins->node->hash,
 			ins->node->children, ins->node->bitmap);
 
-	for (unsigned int i = 0; i < len; ++i) {
+	for (unsigned int i = 0; i < len; ++i) {	
 		if (exact_str_match(ins->node->children[i]->key, ins->key)) {
-			replace_child(ins->node, i, child);
+			replace_child(ins->node, i, new_child);
 			return collision_node;
 		}
 	}
 
 	resize_children(collision_node);
-	insert_child(collision_node, child, len);
+	insert_child(collision_node, new_child, len);
 	return collision_node;
 }
 
