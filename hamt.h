@@ -33,7 +33,9 @@ struct hamt_node_t;
 
 struct hamt_node_t *create_hamt();
 struct hamt_node_t *hamt_set(struct hamt_node_t *hamt, char *key, void *value);
+struct hamt_node_t *hamt_delete(struct hamt_node_t *hamt, char *key);
 void *hamt_get(struct hamt_node_t *hamt, char *key);
+
 void print_hamt(struct hamt_node_t *hamt);
 void visit_all(struct hamt_node_t *hamt, void(*visitor)(char *key, void *value));
 

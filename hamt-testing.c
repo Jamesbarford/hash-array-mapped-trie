@@ -8,6 +8,7 @@
 #include <sys/mman.h>
 
 #include "hamt.h"
+#include "./testing/print_bits.h"
 
 void test_case_1() {
 	struct hamt_node_t *hamt = create_hamt();
@@ -21,6 +22,9 @@ void test_case_1() {
 	printf("value1: %s\n", value1);
 	printf("value2: %s\n", value2);
 	printf("value3: %s\n", value3);
+
+	hamt = hamt_delete(hamt, "hey");
+	printf("Should be null: %s\n", (char *)hamt_get(hamt, "hey"));
 
 	hamt = hamt_set(hamt, "Aa", "collision 1");
 	hamt = hamt_set(hamt, "BB", "collision 2");
@@ -59,7 +63,7 @@ void dictionary_check(struct hamt_node_t *hamt, char *dictionary) {
 			value = (char *)hamt_get(hamt, ptr);
 			if (value == NULL) {
 				missing_count++;
-			} else {
+			} else if (strcmp(value, ptr) == 0) {
 				accounted_for++;
 			}
 			ptr = dictionary + 1;

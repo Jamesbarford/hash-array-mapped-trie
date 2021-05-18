@@ -45,6 +45,12 @@ enum NODE_TYPE {
 	COLLISON
 };
 
+enum RemovalType {
+	EMPTY,
+	REMOVED_ONE,
+	NOOP
+};
+
 typedef struct hamt_node_t {
 	enum NODE_TYPE type;
 	unsigned int hash;
@@ -66,9 +72,21 @@ typedef struct insert_instruction_t {
 	int depth;
 } insert_instruction_t;
 
+typedef struct remove_instruction_t {
+	hamt_node_t *node;
+	unsigned int hash;
+	char *key;
+	int depth;
+	enum RemovalType removal_type;
+} remove_instruction_t;
+
 static hamt_node_t *handle_collision_insert(insert_instruction_t *ins);
 static hamt_node_t *handle_branch_insert(insert_instruction_t *ins);
 static hamt_node_t *handle_leaf_insert(insert_instruction_t *ins);
+
+static remove_instruction_t *handle_collision_remove(remove_instruction_t *ins);
+static remove_instruction_t *handle_branch_remove(remove_instruction_t *ins);
+static remove_instruction_t *handle_leaf_remove(remove_instruction_t *ins);
 
 /*======= node constructors =====================*/
 static hamt_node_t *create_node(int hash, char *key, void *value,
@@ -161,12 +179,17 @@ static void replace_child(hamt_node_t *node, unsigned int position,
 	node->children[position] = child;
 }
 
+static inline int get_child_mem_size(int size) {
+	return sizeof(hamt_node_t *) * size;
+}
+
 /*======= Allocators ==============*/
 /* Assign `n` number of children, at least `CAPACITY` in size */
 static hamt_node_t **alloc_children(int size) {
 	hamt_node_t **children;
+	int arr_size = get_child_mem_size(size);
 
-	if ((children = (hamt_node_t **)malloc(sizeof(hamt_node_t *) * size)) == NULL) {
+	if ((children = (hamt_node_t **)malloc(arr_size)) == NULL) {
 		fprintf(stderr, "Failed to allocate memory for children");
 		return NULL;
 	}
@@ -216,8 +239,9 @@ static void resize_children(hamt_node_t *node, unsigned int size) {
 static void insert_child(hamt_node_t *parent, hamt_node_t *child,
 		unsigned int position, unsigned int size) {
 	resize_children(parent, size);
+	int arr_size = get_child_mem_size(size + 1);
 
-	hamt_node_t *temp[sizeof(hamt_node_t *) * size];
+	hamt_node_t *temp[arr_size];
 
 	unsigned int i = 0, j = 0;
 
@@ -229,9 +253,27 @@ static void insert_child(hamt_node_t *parent, hamt_node_t *child,
 		temp[i++] = parent->children[j++];
 	}
 
-	memcpy(parent->children, temp, sizeof(hamt_node_t *) * (size + 1));
+	memcpy(parent->children, temp, arr_size);
 }
 
+static void remove_child(hamt_node_t *parent, unsigned int position,
+		unsigned int size) {
+	int arr_size = get_child_mem_size(size - 1);
+
+	hamt_node_t *temp[arr_size];
+
+	unsigned int i = 0, j = 0;
+
+	while (j < position) {
+		temp[i++] = parent->children[j++];
+	}
+	i++;
+	while (j < size) {
+		temp[i++] = parent->children[j++];
+	}
+
+	memcpy(parent->children, temp, arr_size);
+}
 
 static bool exact_str_match(char *str1, char *str2) {
 	return strcmp(str1, str2) == 0;
@@ -410,6 +452,95 @@ void *hamt_get(hamt_node_t *hamt, char *key) {
 			}
 		}	
 	}
+}
+
+/*========= REMOVAL ========= */
+remove_instruction_t *remove_node(remove_instruction_t *rem_ins) {
+	switch (rem_ins->node->type) {
+		case LEAF: return handle_leaf_remove(rem_ins);
+		case BRANCH:   return handle_branch_remove(rem_ins);
+		case COLLISON: return handle_collision_remove(rem_ins);
+		default:
+			return NULL;
+	}
+}
+
+static remove_instruction_t *handle_collision_remove(remove_instruction_t *rem_ins) {
+	if (rem_ins->node->hash == rem_ins->hash) {
+		int old_len = rem_ins->node->bitmap;
+		for (int i = 0; i < old_len; ++i) {
+			hamt_node_t *child = rem_ins->node->children[i];
+
+			if (exact_str_match(child->key, rem_ins->key)) {
+				remove_child(rem_ins->node, i, old_len);
+				rem_ins->removal_type = REMOVED_ONE;
+				rem_ins->node = create_collision(rem_ins->node->hash,
+						rem_ins->node->children, rem_ins->node->bitmap - 1);
+				return rem_ins;
+			}
+		}
+	}
+	return rem_ins;
+}
+
+static remove_instruction_t *handle_branch_remove(remove_instruction_t *rem_ins) {
+	unsigned int frag = get_frag(rem_ins->hash, rem_ins->depth);
+	unsigned int mask = get_mask(frag);
+
+	if (rem_ins->node->hash & mask) {
+		unsigned int position = get_position(rem_ins->node->hash, frag);
+		unsigned int size = popcount(rem_ins->node->hash);
+		remove_instruction_t new_rem = {
+			.node = rem_ins->node->children[position],
+			.depth = rem_ins->depth + 1,
+			.removal_type = rem_ins->removal_type,
+			.hash = rem_ins->hash,
+			.key = rem_ins->key
+		};
+
+		new_rem = *remove_node(&new_rem);
+
+		if (new_rem.removal_type == REMOVED_ONE) {
+			unsigned int new_mask = rem_ins->node->hash & ~mask;
+
+			if (new_mask == 0) {
+				rem_ins->removal_type = REMOVED_ONE;
+				return rem_ins;
+			} else {
+				rem_ins->removal_type = REMOVED_ONE;
+				remove_child(rem_ins->node, position, size);
+				rem_ins->node = create_branch(new_mask, rem_ins->node->children);
+				return rem_ins;
+			}
+		} else if (new_rem.removal_type == REMOVED_ONE) {
+			rem_ins->removal_type = REMOVED_ONE;
+			return rem_ins;
+		}
+		replace_child(rem_ins->node, position, NULL);
+		rem_ins->node = create_branch(rem_ins->node->hash, rem_ins->node->children);
+		return rem_ins;
+	}
+
+	return rem_ins;	
+}
+
+static remove_instruction_t *handle_leaf_remove(remove_instruction_t *rem_ins) {
+	bool match = exact_str_match(rem_ins->node->key, rem_ins->key);
+	rem_ins->removal_type = match ? REMOVED_ONE : NOOP;
+	return rem_ins;
+}
+
+hamt_node_t *hamt_delete(hamt_node_t *node, char *key) {
+	remove_instruction_t rem_ins = {
+		.node         = node,
+		.removal_type = REMOVED_ONE,
+		.depth        = 0,
+		.hash         = get_hash(key),
+		.key          = key
+	};
+
+	rem_ins = *remove_node(&rem_ins);
+	return rem_ins.node;	
 }
 
 /*=========== Printing / visiting functions ====== */
