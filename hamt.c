@@ -361,17 +361,21 @@ static hamt_node_t *handle_collision_insert(insert_instruction_t *ins) {
 	hamt_node_t *collision_node = create_collision(ins->node->hash,
 			ins->node->children, ins->node->bitmap);
 
-	for (int i = 0; i < collision_node->bitmap; ++i) {	
-		if (exact_str_match(ins->node->children[i]->key, ins->key)) {
-			replace_child(ins->node, i, new_child);
-			return collision_node;
+	if (ins->hash == ins->node->hash) {
+		for (int i = 0; i < collision_node->bitmap; ++i) {	
+			if (exact_str_match(ins->node->children[i]->key, ins->key)) {
+				replace_child(ins->node, i, new_child);
+				return collision_node;
+			}
 		}
+
+		insert_child(collision_node, new_child, len, len);
+		collision_node->bitmap++;
+		return collision_node;
 	}
 
-	insert_child(collision_node, new_child, len, len);
-	collision_node->bitmap++;
-
-	return collision_node;
+	return merge_leaves(ins->depth, ins->node->hash, ins->node,
+			new_child->hash, new_child);
 }
 
 static hamt_node_t *handle_arraynode_insert(insert_instruction_t *ins) {
