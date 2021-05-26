@@ -49,7 +49,7 @@ To remove a node:
 ```c
 #include "hamt.h"
 
-hamt = hamt_delete(hamt, "hey");
+hamt = hamt_remove(hamt, "hey");
 
 char *value = hamt_get(hamt, "hey");
 printf("%s\n", value); // prints NULL
