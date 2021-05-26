@@ -39,10 +39,14 @@
 #define MASK     31
 #define CAPACITY 6
 
+#define MAX_BRANCH_SIZE     16
+#define MIN_ARRAY_NODE_SIZE 8
+
 enum NODE_TYPE {
 	LEAF,
 	BRANCH,
-	COLLISON
+	COLLISON,
+	ARRAY_NODE
 };
 
 typedef struct hamt_node_t {
@@ -69,6 +73,7 @@ typedef struct insert_instruction_t {
 static hamt_node_t *handle_collision_insert(insert_instruction_t *ins);
 static hamt_node_t *handle_branch_insert(insert_instruction_t *ins);
 static hamt_node_t *handle_leaf_insert(insert_instruction_t *ins);
+static hamt_node_t *handle_arraynode_insert(insert_instruction_t *ins);
 
 /*======= node constructors =====================*/
 static hamt_node_t *create_node(int hash, char *key, void *value,
@@ -105,6 +110,11 @@ static hamt_node_t *create_collision(unsigned int hash, hamt_node_t **children,
 
 static hamt_node_t *create_branch(unsigned int hash, hamt_node_t **children) {
 	return create_node(hash, NULL, NULL, BRANCH, children, 0);
+}
+
+/* again, bitmap is size  */
+static hamt_node_t *create_arraynode(hamt_node_t **children, unsigned int bitmap) {
+	return create_node(0, NULL, NULL, ARRAY_NODE, children, bitmap);
 }
 
 /*======= hashing =========================*/
@@ -166,7 +176,7 @@ static void replace_child(hamt_node_t *node, unsigned int position,
 static hamt_node_t **alloc_children(int size) {
 	hamt_node_t **children;
 
-	if ((children = (hamt_node_t **)malloc(sizeof(hamt_node_t *) * size)) == NULL) {
+	if ((children = (hamt_node_t **)calloc(sizeof(hamt_node_t *), size)) == NULL) {
 		fprintf(stderr, "Failed to allocate memory for children");
 		return NULL;
 	}
@@ -232,6 +242,22 @@ static void insert_child(hamt_node_t *parent, hamt_node_t *child,
 	memcpy(parent->children, temp, sizeof(hamt_node_t *) * (size + 1));
 }
 
+static hamt_node_t *expand(int idx, hamt_node_t *child, unsigned int bitmap,
+		hamt_node_t **children) {
+	hamt_node_t **new_children = alloc_children(SIZE);
+	unsigned int bit = bitmap;
+	unsigned int count = 0;
+
+	for (unsigned int i = 0; bit; ++i) {
+		if (bit & 1) {
+			new_children[i] = children[count++];
+		}
+		bit >>= 1;
+	}
+
+	new_children[idx] = child;
+	return create_arraynode(new_children, count + 1);
+}
 
 static bool exact_str_match(char *str1, char *str2) {
 	return strcmp(str1, str2) == 0;
@@ -254,9 +280,10 @@ static hamt_node_t *insert(hamt_node_t *node, unsigned int hash, char *key,
 	};
 
 	switch (node->type) {
-		case LEAF:     return handle_leaf_insert(&ins);
-		case BRANCH:   return handle_branch_insert(&ins);
-		case COLLISON: return handle_collision_insert(&ins);
+		case LEAF:       return handle_leaf_insert(&ins);
+		case BRANCH:     return handle_branch_insert(&ins);
+		case COLLISON:   return handle_collision_insert(&ins);
+		case ARRAY_NODE: return handle_arraynode_insert(&ins); 
 		default:
 			return NULL;
 	}
@@ -318,23 +345,27 @@ static hamt_node_t *handle_branch_insert(insert_instruction_t *ins) {
 	unsigned int frag = get_frag(ins->hash, ins->depth);
 	unsigned int mask = get_mask(frag);
 	unsigned int pos = get_position(ins->node->hash, frag);
+	bool exists = ins->node->hash & mask;
 
-	// Branch is full
-	if (ins->node->hash & mask) {
+	if (!exists) {
+		unsigned int size = popcount(ins->node->hash);
+		hamt_node_t *new_child = create_leaf(ins->hash, ins->key, ins->value);
+		
+		if (size >= MAX_BRANCH_SIZE) {
+			return expand(frag, new_child, ins->node->hash, ins->node->children);
+		} else {
+			hamt_node_t *new_branch = create_branch(ins->node->hash | mask, ins->node->children);
+			insert_child(new_branch, new_child, pos, size);
+
+			return new_branch;
+		}
+	} else {
 		hamt_node_t *new_branch = create_branch(ins->node->hash, ins->node->children);
 		hamt_node_t *child = new_branch->children[pos];
 
 		// go to next depth, inserting a branch as the child
 		replace_child(new_branch, pos, insert(child, ins->hash, ins->key, ins->value,
 					ins->depth + 1));
-
-		return new_branch;
-	} else {
-		hamt_node_t *new_branch = create_branch(ins->node->hash | mask, ins->node->children);
-		hamt_node_t *new_child = create_leaf(ins->hash, ins->key, ins->value);
-
-		unsigned int size = popcount(ins->node->hash);
-		insert_child(new_branch, new_child, pos, size);
 
 		return new_branch;
 	}
@@ -359,6 +390,27 @@ static hamt_node_t *handle_collision_insert(insert_instruction_t *ins) {
 	return collision_node;
 }
 
+static hamt_node_t *handle_arraynode_insert(insert_instruction_t *ins) {
+	unsigned int frag = get_frag(ins->hash, ins->depth);
+	int size = ins->node->bitmap;
+
+	hamt_node_t *child = ins->node->children[frag];
+	hamt_node_t *new_child = NULL;
+
+	if (child) {
+		new_child = insert(child, ins->hash, ins->key, ins->value, ins->depth + 1);
+	} else {
+		new_child = create_leaf(ins->hash, ins->key, ins->value);
+	}
+	replace_child(ins->node, frag, new_child);
+
+	if (child == NULL && new_child != NULL) {
+		return create_arraynode(ins->node->children, size + 1);
+	}
+
+	return create_arraynode(ins->node->children, size);
+}
+
 /**
  * Return a new node 
  */
@@ -371,10 +423,9 @@ hamt_node_t *hamt_set(hamt_node_t *hamt, char *key, void *value) {
 void *hamt_get(hamt_node_t *hamt, char *key) {
 	unsigned int hash = get_hash(key);
 	hamt_node_t *node = hamt;
-	int depth = -1;
+	int depth = 0;
 
 	for (;;) {
-		++depth;
 		if (node == NULL) {
 			return NULL;
 		}
@@ -386,6 +437,7 @@ void *hamt_get(hamt_node_t *hamt, char *key) {
 				if (node->hash & mask) {
 					unsigned int idx = get_position(node->hash, frag);
 					node = node->children[idx];
+					depth++;
 					continue;
 				} else {
 					return NULL;
@@ -408,6 +460,15 @@ void *hamt_get(hamt_node_t *hamt, char *key) {
 				}
 				return NULL;
 			}
+
+			case ARRAY_NODE: {
+				node = node->children[get_frag(hash, depth)];
+				if (node != NULL) {
+					depth++;
+					continue;
+				}
+				return NULL;
+			}
 		}	
 	}
 }
@@ -416,6 +477,7 @@ void *hamt_get(hamt_node_t *hamt, char *key) {
 void visit_all(hamt_node_t *hamt, void(*visitor)(char *key, void *value)) {
 	if (hamt) {
 		switch (hamt->type) {
+			case ARRAY_NODE:
 			case BRANCH: {
 				int len = popcount(hamt->bitmap);
 				for (int i = 0; i < len; ++i) {
