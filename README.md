@@ -12,7 +12,8 @@ $ ./hamt-testing.out
 
 ## Usage
 
-Currently only get and set are implemented. Any arbitrary data `void *` can be stored against a `char *` key.
+### Insert
+Any arbitrary data `void *` can be stored against a `char *` key.
 ```c
 #include "hamt.h"
 
@@ -25,6 +26,7 @@ int main(void) {
 }
 ```
 
+### Retrieval
 To get a value, pass the `hamt` and key to `hamt_get`. The return value is either `void *` or `NULL`. Cast the type to whatever the data type it is you gave inserted. Follow from aboves example we cast the result to `char *` and then print to stdout.
 
 ```c
@@ -39,4 +41,16 @@ int main(void) {
     printf("%s\n", found);
   }
 }
+```
+
+### Removal
+To remove a node:
+
+```c
+#include "hamt.h"
+
+hamt = hamt_delete(hamt, "hey");
+
+char *value = hamt_get(hamt, "hey");
+printf("%s\n", value); // prints NULL
 ```
