@@ -259,6 +259,33 @@ static hamt_node_t *expand(int idx, hamt_node_t *child, unsigned int bitmap,
 	return create_arraynode(new_children, count + 1);
 }
 
+static hamt_node_t *merge_leaves(unsigned int depth, unsigned int h1, hamt_node_t *n1,
+		unsigned int h2, hamt_node_t *n2) {
+	hamt_node_t **new_children = alloc_children(CAPACITY);
+
+	if (h1 == h2) {
+		new_children[0] = n2;
+		new_children[1] = n1;
+		return create_collision(h1, new_children, 2);
+	}
+
+	unsigned int sub_h1 = get_frag(h1, depth);
+	unsigned int sub_h2 = get_frag(h2, depth);
+	unsigned int new_hash = get_mask(sub_h1) | get_mask(sub_h2);
+
+	if (sub_h1 == sub_h2) {
+		new_children[0] = merge_leaves(depth + 1, h1, n1, h2, n2);
+	} else if (sub_h1 < sub_h2) {
+		new_children[0] = n1;
+		new_children[1] = n2;
+	} else {
+		new_children[0] = n2;
+		new_children[1] = n1;
+	}
+
+	return create_branch(new_hash, new_children);
+}
+
 static bool exact_str_match(char *str1, char *str2) {
 	return strcmp(str1, str2) == 0;
 }
@@ -290,55 +317,12 @@ static hamt_node_t *insert(hamt_node_t *node, unsigned int hash, char *key,
 }
 
 static hamt_node_t *handle_leaf_insert(insert_instruction_t *ins) {
-	if (ins->node->hash == ins->hash) {
-		if (exact_str_match(ins->node->key, ins->key)) {
-			return create_leaf(ins->hash, ins->key, ins->value);
-		}
-
-		hamt_node_t *collision_node = create_collision(ins->hash,
-			alloc_children(CAPACITY), 2);
-
-		if (collision_node->children == NULL) return NULL;
-
-		collision_node->children[0] = ins->node;
-		collision_node->children[1] = create_leaf(ins->hash, ins->key, ins->value);
-
-		return collision_node;
+	hamt_node_t *new_child = create_leaf(ins->hash, ins->key, ins->value);
+	if (exact_str_match(ins->node->key, ins->key)) {
+		return new_child;
 	}
 
-	unsigned int prev_frag = get_frag(ins->node->hash, ins->depth);
-	unsigned int prev_mask = get_mask(prev_frag);
-
-	unsigned int frag = get_frag(ins->hash, ins->depth);
-	unsigned int mask = get_mask(frag);
-
-	if (prev_frag == frag) {
-		hamt_node_t *new_branch = create_branch(mask, alloc_children(CAPACITY));
-
-		new_branch->children[0] = insert(
-			insert(
-				create_branch(0, alloc_children(CAPACITY)),
-					ins->hash, ins->key, ins->value, ins->depth + 1
-			),
-			ins->node->hash, ins->node->key, ins->node->value, ins->depth + 1
-		);
-
-		return new_branch;
-	}
-
-	hamt_node_t *child = create_leaf(ins->hash, ins->key, ins->value);
-	hamt_node_t *new_branch = create_branch(mask | prev_mask, alloc_children(CAPACITY));
-
-	if (new_branch->children == NULL) return NULL;
-	if (prev_frag < frag) {
-		new_branch->children[0] = ins->node;
-		new_branch->children[1] = child;
-	} else {
-		new_branch->children[0] = child;
-		new_branch->children[1] = ins->node;
-	}
-
-	return new_branch;
+	return merge_leaves(ins->depth, ins->node->hash, ins->node, new_child->hash, new_child);
 }
 
 static hamt_node_t *handle_branch_insert(insert_instruction_t *ins) {
