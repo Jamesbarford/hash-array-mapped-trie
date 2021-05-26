@@ -71,12 +71,43 @@ void dictionary_check(struct hamt_node_t *hamt, char *dictionary) {
 	printf("Present: %d\n", accounted_for);
 }
 
+void remove_all(struct hamt_node_t *hamt, char *dictionary) {
+	char *ptr = dictionary;
+	int missing_count = 0;
+	int removal_count = 0;
+
+	while (*dictionary != '\0') {
+		if (*dictionary == '\n') {
+			*dictionary = '\0';
+
+			hamt = hamt_remove(hamt, ptr);
+			if (hamt == NULL) {
+				missing_count++;
+				goto failed;
+			} else {
+				removal_count++;
+			}
+			ptr = dictionary + 1;
+		}
+		dictionary++;
+	}
+
+	printf("Missing: %d\n", missing_count);
+	printf("Removed: %d\n", removal_count);
+	return;
+failed:
+	printf("Failed Missing: %d\n", missing_count);
+	printf("Failed Removed: %d\n", removal_count);
+}
+
+
 void test_case_2(char *contents) {
 	struct hamt_node_t *hamt = create_hamt();
 
 	insert_dictionary(&hamt, contents);
 	printf("finished insert\n");
-	dictionary_check(hamt, contents);
+	remove_all(hamt, contents);
+	//dictionary_check(hamt, contents);
 }
 
 int main(void) {
