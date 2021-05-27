@@ -62,6 +62,10 @@ typedef struct hamt_node_t {
 	struct hamt_node_t **children;
 } hamt_node_t;
 
+typedef struct hamt_t {
+	hamt_node_t *root;
+} hamt_t;
+
 typedef struct insert_instruction_t {
 	hamt_node_t *node;
 	unsigned int hash;
@@ -95,8 +99,15 @@ static hamt_node_t *create_node(int hash, char *key, void *value,
 	return node;
 }
 
-hamt_node_t *create_hamt() {
-	return create_node(0, "", NULL, BRANCH, NULL, 0);
+hamt_t *create_hamt() {
+	hamt_t *hamt;
+
+	if ((hamt = (hamt_t *)malloc(sizeof(hamt_t))) == NULL) {
+		fprintf(stderr, "Failed to allocate memory for hamt\n");
+	}
+
+	hamt->root = NULL;
+	return hamt;
 }
 
 static hamt_node_t *create_leaf(unsigned int hash, char *key, void *value) {
@@ -445,15 +456,21 @@ static hamt_node_t *handle_arraynode_insert(insert_instruction_t *ins) {
 /**
  * Return a new node 
  */
-hamt_node_t *hamt_set(hamt_node_t *hamt, char *key, void *value) {
+hamt_t *hamt_set(hamt_t *hamt, char *key, void *value) {
 	unsigned int hash = get_hash(key);	
 
-	return insert(hamt, hash, key, value, 0);
+	if (hamt->root != NULL) {
+		hamt->root = insert(hamt->root, hash, key, value, 0);
+	} else {
+		hamt->root = create_leaf(hash, key, value);
+	}
+
+	return hamt;
 }
 
-void *hamt_get(hamt_node_t *hamt, char *key) {
+void *hamt_get(hamt_t *hamt, char *key) {
 	unsigned int hash = get_hash(key);
-	hamt_node_t *node = hamt;
+	hamt_node_t *node = hamt->root;
 	int depth = 0;
 
 	for (;;) {
@@ -614,13 +631,18 @@ static hamt_node_t *remove_node(hamt_node_t *node, unsigned int hash, char *key,
 	}
 }
 
-hamt_node_t *hamt_remove(hamt_node_t *node, char *key) {
+hamt_t *hamt_remove(hamt_t *hamt, char *key) {
 	unsigned int hash = get_hash(key);
-	return remove_node(node, hash, key, 0);
+
+	if (hamt->root != NULL) {
+		hamt->root = remove_node(hamt->root, hash, key, 0);
+	}
+	return hamt;
 }
 
+
 /*=========== Printing / visiting functions ====== */
-void visit_all(hamt_node_t *hamt, void(*visitor)(char *key, void *value)) {
+static void visit_all_nodes(hamt_node_t *hamt, void(*visitor)(char *key, void *value)) {
 	if (hamt) {
 		switch (hamt->type) {
 			case ARRAY_NODE:
@@ -628,7 +650,7 @@ void visit_all(hamt_node_t *hamt, void(*visitor)(char *key, void *value)) {
 				int len = popcount(hamt->bitmap);
 				for (int i = 0; i < len; ++i) {
 					hamt_node_t *child = hamt->children[i];
-					visit_all(child, visitor);
+					visit_all_nodes(child, visitor);
 				}
 				return;
 			}
@@ -636,7 +658,7 @@ void visit_all(hamt_node_t *hamt, void(*visitor)(char *key, void *value)) {
 				int len = popcount(hamt->bitmap);
 				for (int i = 0; i < len; ++i) {
 					hamt_node_t *child = hamt->children[i];
-					visit_all(child, visitor);
+					visit_all_nodes(child, visitor);
 				}
 				return;
 			}
@@ -647,11 +669,15 @@ void visit_all(hamt_node_t *hamt, void(*visitor)(char *key, void *value)) {
 	}
 }
 
+void visit_all(hamt_t *hamt, void (*visitor)(char *, void *)) {
+	visit_all_nodes(hamt->root, visitor);
+}
+
 static void print_node(char *key, void *value) {
 	(void)value;
 	printf("key: %s\n", key);
 }
 
-void print_hamt(hamt_node_t *hamt) {
+void print_hamt(hamt_t *hamt) {
 	visit_all(hamt, print_node);
 }

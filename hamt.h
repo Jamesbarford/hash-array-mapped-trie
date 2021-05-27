@@ -29,13 +29,13 @@
 #ifndef HAMT_H
 #define HAMT_H
 
-struct hamt_node_t;
+struct hamt_t;
 
-struct hamt_node_t *create_hamt();
-struct hamt_node_t *hamt_set(struct hamt_node_t *hamt, char *key, void *value);
-struct hamt_node_t *hamt_remove(struct hamt_node_t *node, char *key);
-void *hamt_get(struct hamt_node_t *hamt, char *key);
-void print_hamt(struct hamt_node_t *hamt);
-void visit_all(struct hamt_node_t *hamt, void(*visitor)(char *key, void *value));
+struct hamt_t *create_hamt();
+struct hamt_t *hamt_set(struct hamt_t *hamt, char *key, void *value);
+struct hamt_t *hamt_remove(struct hamt_t *node, char *key);
+void *hamt_get(struct hamt_t *hamt, char *key);
+void print_hamt(struct hamt_t *hamt);
+void visit_all(struct hamt_t *hamt, void (*visitor)(char *key, void *value));
 
 #endif
