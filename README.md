@@ -18,7 +18,7 @@ Any arbitrary data `void *` can be stored against a `char *` key.
 #include "hamt.h"
 
 int main(void) {
-  struct hamt_node_t *hamt = create_hamt();
+  struct hamt_t *hamt = create_hamt();
 
   hamt = hamt_set(hamt, "hello", "world");
   hamt = hamt_set(hamt, "hey", "hows it going");
@@ -33,7 +33,7 @@ To get a value, pass the `hamt` and key to `hamt_get`. The return value is eithe
 #include "hamt.h"
 
 int main(void) {
-  struct hamt_node_t *hamt = create_hamt();
+  struct hamt_t *hamt = create_hamt();
 
   // Assuming the hamt has been made as above ^
   char *found = (char *)hamt_get(hamt, "Hello");

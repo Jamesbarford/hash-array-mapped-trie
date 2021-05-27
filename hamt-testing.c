@@ -10,7 +10,7 @@
 #include "hamt.h"
 
 void test_case_1() {
-	struct hamt_node_t *hamt = create_hamt();
+	struct hamt_t *hamt = create_hamt();
 
 	hamt = hamt_set(hamt, "hello", "world");
 	hamt = hamt_set(hamt, "hey", "over there");
@@ -31,7 +31,7 @@ void test_case_1() {
 	printf("collision value2: %s\n", collision_2);
 }
 
-void insert_dictionary(struct hamt_node_t **hamt, char *dictionary) {
+void insert_dictionary(struct hamt_t **hamt, char *dictionary) {
 	char *ptr = dictionary;
 
 	while (*dictionary != '\0') {
@@ -46,7 +46,7 @@ void insert_dictionary(struct hamt_node_t **hamt, char *dictionary) {
 	}
 }
 
-void dictionary_check(struct hamt_node_t *hamt, char *dictionary) {
+void dictionary_check(struct hamt_t *hamt, char *dictionary) {
 	char *ptr = dictionary;
 	char *value;
 	int missing_count = 0;
@@ -71,7 +71,7 @@ void dictionary_check(struct hamt_node_t *hamt, char *dictionary) {
 	printf("Present: %d\n", accounted_for);
 }
 
-void remove_all(struct hamt_node_t *hamt, char *dictionary) {
+void remove_all(struct hamt_t *hamt, char *dictionary) {
 	char *ptr = dictionary;
 	int missing_count = 0;
 	int removal_count = 0;
@@ -102,7 +102,7 @@ failed:
 
 
 void test_case_2(char *contents) {
-	struct hamt_node_t *hamt = create_hamt();
+	struct hamt_t *hamt = create_hamt();
 
 	insert_dictionary(&hamt, contents);
 	printf("finished insert\n");
