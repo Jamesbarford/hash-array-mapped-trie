@@ -52,6 +52,7 @@ void dictionary_check(struct hamt_t *hamt, char *dictionary) {
 	int missing_count = 0;
 	int accounted_for = 0;
 
+	printf("Checking HAMT entries..\n");
 	while (*dictionary != '\0') {
 		if (*dictionary == '\n') {
 			*dictionary = '\0';
@@ -59,6 +60,8 @@ void dictionary_check(struct hamt_t *hamt, char *dictionary) {
 			value = (char *)hamt_get(hamt, ptr);
 			if (value == NULL) {
 				missing_count++;
+			} else if(strcmp(value, ptr) != 0) {
+				printf("Mismatch\n");
 			} else {
 				accounted_for++;
 			}
@@ -104,10 +107,12 @@ failed:
 void test_case_2(char *contents) {
 	struct hamt_t *hamt = create_hamt();
 
-	insert_dictionary(&hamt, contents);
+	insert_dictionary(&hamt, strdup(contents));
+	dictionary_check(hamt, strdup(contents));
 	printf("finished insert\n");
-	remove_all(hamt, contents);
-	//dictionary_check(hamt, contents);
+	remove_all(hamt, strdup(contents));
+	printf("Finished removing\n");
+	dictionary_check(hamt, strdup(contents));
 }
 
 int main(void) {
