@@ -633,7 +633,6 @@ static inline hamt_node_t *handle_leaf_removal(hamt_removal_t *rem) {
 	return rem->node;
 }
 
-
 /**
  * Transform ArrayNode into a BranchNode. Setting each bit in the hash for
  * where a child is not NULL.
@@ -644,7 +643,7 @@ static inline hamt_node_t *handle_leaf_removal(hamt_removal_t *rem) {
 static inline hamt_node_t *compress_array_to_branch(unsigned int idx,
 		hamt_node_t **children) {
 
-	hamt_node_t **new_children = alloc_children(MIN_ARRAY_NODE_SIZE);
+	hamt_node_t **new_children = alloc_children(MAX_BRANCH_SIZE);
 	hamt_node_t *child = NULL;
 	int j = 0;
 	unsigned int hash = 0;
