@@ -222,21 +222,7 @@ static void resize_children(hamt_node_t *node, unsigned int size) {
 
 /*======= moving / inserting child nodes ==============*/
 /**
- * If the slot is occupied in the bitmap move all the children over to
- * allow this child in
- * 
- * Example:
- * We want to slot in child to position 2 and for simplicity
- * it's key is "c".
- * 
- * initial:
- * [a,b,d,f,g]
- *
- * after moving
- * [a,b, ,d,f,g]
- * 
- * insert
- * [a,b,c,d,f,g]
+ * Insert child at given position
  */
 static void insert_child(hamt_node_t *parent, hamt_node_t *child,
 		unsigned int position, unsigned int size) {
@@ -257,7 +243,9 @@ static void insert_child(hamt_node_t *parent, hamt_node_t *child,
 	memcpy(parent->children, temp, sizeof(hamt_node_t *) * (size + 1));
 }
 
-
+/**
+ * Remove child
+ */
 static void remove_child(hamt_node_t *parent, unsigned int position,
 		unsigned int size) {
 	int arr_size = sizeof(hamt_node_t *) * (size  - 1);
@@ -521,121 +509,140 @@ void *hamt_get(hamt_t *hamt, char *key) {
 	}
 }
 
+typedef struct hamt_removal_t {
+	hamt_node_t *node;
+	unsigned int hash;
+	char *key;
+	int depth;
+} hamt_removal_t;
 
-static hamt_node_t *remove_node(hamt_node_t *node, unsigned int hash, char *key, int depth) {
-	unsigned int frag = get_frag(hash, depth);
+static hamt_node_t *remove_node(hamt_removal_t *rem) {
+	unsigned int frag = get_frag(rem->hash, rem->depth);
 	unsigned int mask = get_mask(frag);
 
-	if (node == NULL) {
+	if (rem->node == NULL) {
 		return NULL;
 	}
 
-	switch (node->type) {
+	switch (rem->node->type) {
 		case LEAF: {
-			if (exact_str_match(node->key, key)) {
+			if (exact_str_match(rem->node->key, rem->key)) {
 				return NULL;
 			}
-			return node;
+			return rem->node;
 		}
 
 		case BRANCH: {
-			bool exists = node->hash & mask;
+			hamt_node_t *branch_node = rem->node;
+			bool exists = branch_node->hash & mask;
 
 			if (!exists) {
-				return node;
+				return branch_node;
 			}
 
-			int pos = get_position(node->hash, frag);
-			int size = popcount(node->hash);
-			hamt_node_t *child = node->children[pos];
-			hamt_node_t *new_child = remove_node(child, hash, key, depth + 1);
+			int pos = get_position(branch_node->hash, frag);
+			int size = popcount(branch_node->hash);
+			hamt_node_t *child = branch_node->children[pos];
+			rem->node = child;
+			rem->depth++;
+
+			hamt_node_t *new_child = remove_node(rem);
 
 			if (child == new_child) {
-				return node;
+				return branch_node;
 			}
 
 			if (new_child == NULL) {
-				unsigned int new_hash = node->hash & ~mask;
+				unsigned int new_hash = branch_node->hash & ~mask;
 				if (!new_hash) {
 					return NULL;
 				}
 
-				if (size == 2 && is_leaf(node->children[pos ^ 1])) {
-					return node->children[pos ^ 1];
+				if (size == 2 && is_leaf(branch_node->children[pos ^ 1])) {
+					return branch_node->children[pos ^ 1];
 				}
 
-				remove_child(node, pos, size);
-				return create_branch(new_hash, node->children);
+				remove_child(branch_node, pos, size);
+				return create_branch(new_hash, branch_node->children);
 			}
 
 			if (size == 1 && is_leaf(new_child)) {
 				return new_child;
 			}
 
-			replace_child(node, pos, new_child);
-			return create_branch(node->hash, node->children);
+			replace_child(branch_node, pos, new_child);
+			return create_branch(branch_node->hash, branch_node->children);
 		}
 
 		case COLLISON: {
-			if (node->hash == hash) {
-				for (int i = 0; i < node->bitmap; ++i) {
-					hamt_node_t *child = node->children[i];
+			if (rem->node->hash == rem->hash) {
+				for (int i = 0; i < rem->node->bitmap; ++i) {
+					hamt_node_t *child = rem->node->children[i];
 
-					if (exact_str_match(child->key, key)) {
-						remove_child(node, i, node->bitmap);
-						if ((node->bitmap - 1) > 1) {
-							return create_collision(node->hash, node->children, node->bitmap - 1);
+					if (exact_str_match(child->key, rem->key)) {
+						remove_child(rem->node, i, rem->node->bitmap);
+						if ((rem->node->bitmap - 1) > 1) {
+							return create_collision(rem->node->hash, rem->node->children,
+									rem->node->bitmap - 1);
 						}
-						return node->children[0];
+						return rem->node->children[0];
 					}
 				}
 			}
 
-			return node;
+			return rem->node;
 		}
 
 		case ARRAY_NODE: {
-			int size = node->bitmap;
-			hamt_node_t *child = node->children[frag];
+			hamt_node_t *array_node = rem->node;
+			int size = array_node->bitmap;
+			hamt_node_t *child = array_node->children[frag];
 			hamt_node_t *new_child = NULL;
 
 			if (child) {
-				new_child = remove_node(child, hash, key, depth + 1);
+				rem->node = child;
+				rem->depth++;
+				new_child = remove_node(rem);
 			} else {
 				new_child = NULL;
 			}
 
 			if (child == new_child) {
-				return node;
+				return array_node;
 			}
 
 			if (child == NULL && new_child != NULL) {
-				replace_child(node, frag, new_child);
-				return create_arraynode(node->children, node->bitmap + 1);
+				replace_child(array_node, frag, new_child);
+				return create_arraynode(array_node->children, array_node->bitmap + 1);
 			}
 
 			if (child != NULL && new_child == NULL) {
 				if ((size - 1) <= MIN_ARRAY_NODE_SIZE) {
-					return pack(size, frag, node->children);
+					return pack(size, frag, array_node->children);
 				}
-				replace_child(node, frag, NULL);
-				return create_arraynode(node->children, node->bitmap - 1);
+				replace_child(array_node, frag, NULL);
+				return create_arraynode(array_node->children, array_node->bitmap - 1);
 			}
 
-			replace_child(node, frag, new_child);
-			return create_arraynode(node->children, node->bitmap);
+			replace_child(array_node, frag, new_child);
+			return create_arraynode(array_node->children, array_node->bitmap);
 		}
 
 		default:
-			return node;
+			return rem->node;
 	}
 }
 
 hamt_t *hamt_remove(hamt_t *hamt, char *key) {
 	unsigned int hash = get_hash(key);
+	hamt_removal_t rem;
+	rem.hash = hash;
+	rem.depth = 0;
+	rem.key = key;
+	rem.node = hamt->root;
 
 	if (hamt->root != NULL) {
-		hamt->root = remove_node(hamt->root, hash, key, 0);
+		hamt->root = remove_node(&rem);
 	}
 	return hamt;
 }
