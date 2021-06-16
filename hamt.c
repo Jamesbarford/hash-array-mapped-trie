@@ -347,7 +347,7 @@ static inline hamt_node_t *expand_branch_to_array_node(int idx, hamt_node_t *chi
 		if (bit & 1) {
 			new_children[i] = children[count++];
 		}
-		bit >>= 1UL;
+		bit >>= 1U;
 	}
 
 	new_children[idx] = child;
