@@ -37,10 +37,11 @@
 #define BITS     5
 #define SIZE     32
 #define MASK     31
-#define CAPACITY 6
 
-#define MAX_BRANCH_SIZE     16
-#define MIN_ARRAY_NODE_SIZE 8
+#define MIN_COLLISION_NODE_SIZE 8 // this is arbitrary, as a collision should only have
+																	// two nodes
+#define MAX_BRANCH_SIZE         16
+#define MIN_ARRAY_NODE_SIZE     8
 
 enum NODE_TYPE {
 	LEAF,
@@ -54,7 +55,7 @@ typedef struct hamt_node_t {
 	unsigned int hash;
 	/**
 	 * This is only used by the collision node and array_node and is a count of
-	 * the total number of children held in the collision node
+	 * the total number of children held in the node
 	 */
 	int bitmap;
 	char *key;
@@ -167,7 +168,7 @@ static inline int popcount(unsigned int bits) {
 /**
  * convert a string to a 32bit unsigned integer
  */
-static unsigned int get_hash(char *str) {
+static inline unsigned int get_hash(char *str) {
 	unsigned int hash = 0;	
 	char *ptr = str;
 
@@ -178,12 +179,12 @@ static unsigned int get_hash(char *str) {
 	return hash;
 }
 
-static unsigned int get_mask(unsigned int frag) {
+static inline unsigned int get_mask(unsigned int frag) {
 	return 1 << frag;
 }
 
 /* take 5 bits of the hash */
-static unsigned int get_frag(unsigned int hash, int depth) {
+static inline unsigned int get_frag(unsigned int hash, int depth) {
 	return ((unsigned int)hash >> (BITS * depth)) & MASK;
 }
 
@@ -208,34 +209,12 @@ static hamt_node_t **alloc_children(int size) {
 	return children;
 }	
 
-/**
- * If the Children are NULL, then `CAPACITY` is allocated.
- * Else re-assign `CAPACITY` * size of children.
- *
- * Or a noop if there is enough space
- */
-static void resize_children(hamt_node_t *node, unsigned int size) {
-	if (size % CAPACITY == 0) {
-		unsigned int new_size = sizeof(hamt_node_t) * (CAPACITY + size);
-		hamt_node_t **children = NULL;
-
-		if (node->children == NULL) {
-			children = alloc_children(CAPACITY);
-		} else {
-			children = (hamt_node_t **)realloc(node->children, new_size);
-		}
-
-		node->children = children;
-	}
-}
-
 /*======= moving / inserting child nodes ==============*/
 /**
  * Insert child at given position
  */
-static void insert_child(hamt_node_t *parent, hamt_node_t *child,
+static inline void insert_child(hamt_node_t *parent, hamt_node_t *child,
 		unsigned int position, unsigned int size) {
-	resize_children(parent, size);
 
 	hamt_node_t *temp[sizeof(hamt_node_t *) * size];
 
@@ -254,7 +233,7 @@ static void insert_child(hamt_node_t *parent, hamt_node_t *child,
 /**
  * Remove child
  */
-static void remove_child(hamt_node_t *parent, unsigned int position,
+static inline void remove_child(hamt_node_t *parent, unsigned int position,
 		unsigned int size) {
 	int arr_size = sizeof(hamt_node_t *) * (size  - 1);
 	hamt_node_t **new_children = alloc_children(arr_size);
@@ -275,44 +254,14 @@ static void remove_child(hamt_node_t *parent, unsigned int position,
 /**
  * Replace child
  */
-static void replace_child(hamt_node_t *node, hamt_node_t *child, unsigned int position) {
+static inline void replace_child(hamt_node_t *node, hamt_node_t *child,
+		unsigned int position) {
 	node->children[position] = child;
 }
 
-static hamt_node_t *merge_leaves(unsigned int depth, unsigned int h1, hamt_node_t *n1,
-		unsigned int h2, hamt_node_t *n2) {
-	hamt_node_t **new_children = alloc_children(CAPACITY);
-
-	if (h1 == h2) {
-		new_children[0] = n2;
-		new_children[1] = n1;
-		return create_collision(h1, new_children, 2);
-	}
-
-	unsigned int sub_h1 = get_frag(h1, depth);
-	unsigned int sub_h2 = get_frag(h2, depth);
-	unsigned int new_hash = get_mask(sub_h1) | get_mask(sub_h2);
-
-	if (sub_h1 == sub_h2) {
-		new_children[0] = merge_leaves(depth + 1, h1, n1, h2, n2);
-	} else if (sub_h1 < sub_h2) {
-		new_children[0] = n1;
-		new_children[1] = n2;
-	} else {
-		new_children[0] = n2;
-		new_children[1] = n1;
-	}
-
-	return create_branch(new_hash, new_children);
-}
-
-static bool exact_str_match(char *str1, char *str2) {
-	return strcmp(str1, str2) == 0;
-}
-
 /**
- * ======== Node insertion ========
- *
+ * Function is just to split out the other methods
+ * This is an atempt at polymorphism
  */
 static hamt_node_t *insert(hamt_node_t *node, unsigned int hash, char *key,
 		void *value, int depth) {
@@ -335,9 +284,51 @@ static hamt_node_t *insert(hamt_node_t *node, unsigned int hash, char *key,
 	}
 }
 
-static hamt_node_t *handle_leaf_insert(insert_instruction_t *ins) {
+/**
+ * If the hashes clash create a new collision node
+ *
+ * If the partial hashes are the same recurse
+ *
+ * Otherwise create a new Branch with the new hash
+ */
+static inline hamt_node_t *merge_leaves(unsigned int depth, unsigned int h1,
+		hamt_node_t *n1, unsigned int h2, hamt_node_t *n2) {
+	hamt_node_t **new_children = NULL;
+
+	if (h1 == h2) {
+		new_children = alloc_children(MIN_COLLISION_NODE_SIZE);
+		new_children[0] = n2;
+		new_children[1] = n1;
+		return create_collision(h1, new_children, 2);
+	}
+
+	unsigned int sub_h1 = get_frag(h1, depth);
+	unsigned int sub_h2 = get_frag(h2, depth);
+	unsigned int new_hash = get_mask(sub_h1) | get_mask(sub_h2);
+	new_children = alloc_children(MAX_BRANCH_SIZE);
+
+	if (sub_h1 == sub_h2) {
+		new_children[0] = merge_leaves(depth + 1, h1, n1, h2, n2);
+	} else if (sub_h1 < sub_h2) {
+		new_children[0] = n1;
+		new_children[1] = n2;
+	} else {
+		new_children[0] = n2;
+		new_children[1] = n1;
+	}
+
+	return create_branch(new_hash, new_children);
+}
+
+/**
+ * If what we are trying to insert matches key return a new LeafNode
+ * 
+ * If we got here and there is no match we need to transform the node
+ * into a branch node using 'merge_leaves'
+ */
+static inline hamt_node_t *handle_leaf_insert(insert_instruction_t *ins) {
 	hamt_node_t *new_child = create_leaf(ins->hash, ins->key, ins->value);
-	if (exact_str_match(ins->node->key, ins->key)) {
+	if (strcmp(ins->node->key, ins->key) == 0) {
 		return new_child;
 	}
 
@@ -345,7 +336,7 @@ static hamt_node_t *handle_leaf_insert(insert_instruction_t *ins) {
 			new_child);
 }
 
-static hamt_node_t *expand_branch_to_array_node(int idx, hamt_node_t *child,
+static inline hamt_node_t *expand_branch_to_array_node(int idx, hamt_node_t *child,
 		unsigned int bitmap, hamt_node_t **children) {
 
 	hamt_node_t **new_children = alloc_children(SIZE);
@@ -363,7 +354,15 @@ static hamt_node_t *expand_branch_to_array_node(int idx, hamt_node_t *child,
 	return create_arraynode(new_children, count+1);
 }
 
-static hamt_node_t *handle_branch_insert(insert_instruction_t *ins) {
+/**
+ * If there is no node at the given index insert the child and update the hash.
+ * 
+ * If there is no node at ^   ^^     ^^   but the size is bigger than the
+ * maximum capacity for a Branch, then expand into an ArrayNode
+ * 
+ * If the child exists in the slot recurse into the tree.
+ */
+static inline hamt_node_t *handle_branch_insert(insert_instruction_t *ins) {
 	unsigned int frag = get_frag(ins->hash, ins->depth);
 	unsigned int mask = get_mask(frag);
 	unsigned int pos = get_position(ins->node->hash, frag);
@@ -395,7 +394,13 @@ static hamt_node_t *handle_branch_insert(insert_instruction_t *ins) {
 	}
 }
 
-static hamt_node_t *handle_collision_insert(insert_instruction_t *ins) {
+/**
+ * If the key string is the same  as the one we are trying to insert then
+ * replace the node.
+ *
+ * Otherwise insert the node at the end of the collision node's children
+ */
+static inline hamt_node_t *handle_collision_insert(insert_instruction_t *ins) {
 	unsigned int len = ins->node->bitmap;	
 	hamt_node_t *new_child = create_leaf(ins->hash, ins->key, ins->value);
 	hamt_node_t *collision_node = create_collision(ins->node->hash,
@@ -403,7 +408,7 @@ static hamt_node_t *handle_collision_insert(insert_instruction_t *ins) {
 
 	if (ins->hash == ins->node->hash) {
 		for (int i = 0; i < collision_node->bitmap; ++i) {	
-			if (exact_str_match(ins->node->children[i]->key, ins->key)) {
+			if (strcmp(ins->node->children[i]->key, ins->key) == 0) {
 				replace_child(ins->node, new_child, i);
 				return collision_node;
 			}
@@ -418,7 +423,17 @@ static hamt_node_t *handle_collision_insert(insert_instruction_t *ins) {
 			new_child->hash, new_child);
 }
 
-static hamt_node_t *handle_arraynode_insert(insert_instruction_t *ins) {
+/**
+ * If there is a child in the place where we are trying to insert, step
+ * into the tree.
+ *
+ * Otherwise we can create a leaf and replace the empty slot. We allocate
+ * 'SIZE' worth of children and fill the blank spaces with null so it is
+ * easy to keep track off.
+ *
+ * Could switch out to a bitmap
+ */
+static inline hamt_node_t *handle_arraynode_insert(insert_instruction_t *ins) {
 	unsigned int frag = get_frag(ins->hash, ins->depth);
 	int size = ins->node->bitmap;
 
@@ -455,6 +470,9 @@ hamt_t *hamt_set(hamt_t *hamt, char *key, void *value) {
 	return hamt;
 }
 
+/**
+ * Wind down the tree to the leaf node using the hash.
+ */
 void *hamt_get(hamt_t *hamt, char *key) {
 	unsigned int hash = get_hash(key);
 	hamt_node_t *node = hamt->root;
@@ -483,14 +501,14 @@ void *hamt_get(hamt_t *hamt, char *key) {
 				int len = node->bitmap;
 				for (int i = 0; i < len; ++i) {
 					hamt_node_t *child = node->children[i];
-					if (child != NULL && exact_str_match(child->key, key))
+					if (child != NULL && strcmp(child->key, key) == 0)
 						return child->value;
 				}	
 				return NULL;
 			}
 	
 			case LEAF: {
-				if (node != NULL && exact_str_match(node->key, key)) {
+				if (node != NULL && strcmp(node->key, key) == 0) {
 					return node->value;
 				}
 				return NULL;
@@ -508,6 +526,7 @@ void *hamt_get(hamt_t *hamt, char *key) {
 	}
 }
 
+// Just to split out the functions, does nothing special
 static hamt_node_t *remove_node(hamt_removal_t *rem) {
 	if (rem->node == NULL) {
 		return NULL;
@@ -520,22 +539,28 @@ static hamt_node_t *remove_node(hamt_removal_t *rem) {
 		case ARRAY_NODE: return handle_arraynode_removal(rem);
 
 		default:
+			/* NOT REACHED  */
 			return rem->node;
 	}
 }
 
-static hamt_node_t *handle_collision_removal(hamt_removal_t *rem) {
+/**
+ * Removing a child from the CollisionNode or collapsing if there is
+ * only one child left.
+ */
+static inline hamt_node_t *handle_collision_removal(hamt_removal_t *rem) {
 	if (rem->node->hash == rem->hash) {
 		for (int i = 0; i < rem->node->bitmap; ++i) {
 			hamt_node_t *child = rem->node->children[i];
 
-			if (exact_str_match(child->key, rem->key)) {
+			if (strcmp(child->key, rem->key) == 0) {
 				remove_child(rem->node, i, rem->node->bitmap);
-				// TODO: SUCCESSFUL DELETE 
+				// could free rem->node here
 				if ((rem->node->bitmap - 1) > 1) {
 					return create_collision(rem->node->hash, rem->node->children,
 							rem->node->bitmap - 1);
 				}
+				// Collapse collision node
 				return rem->node->children[0];
 			}
 		}
@@ -544,7 +569,11 @@ static hamt_node_t *handle_collision_removal(hamt_removal_t *rem) {
 	return rem->node;
 }
 
-static hamt_node_t *handle_branch_removal(hamt_removal_t *rem) {
+/**
+ * Removing an element from a branch node. Either traversing down the tree,
+ * collapsing the node, removing a child or a noop.
+ */
+static inline hamt_node_t *handle_branch_removal(hamt_removal_t *rem) {
 	unsigned int frag = get_frag(rem->hash, rem->depth);
 	unsigned int mask = get_mask(frag);
 
@@ -573,6 +602,7 @@ static hamt_node_t *handle_branch_removal(hamt_removal_t *rem) {
 			return NULL;
 		}
 
+		// Collapse the node
 		if (size == 2 && is_leaf(branch_node->children[pos ^ 1])) {
 			return branch_node->children[pos ^ 1];
 		}
@@ -589,16 +619,31 @@ static hamt_node_t *handle_branch_removal(hamt_removal_t *rem) {
 	return create_branch(branch_node->hash, branch_node->children);
 }
 
-static hamt_node_t *handle_leaf_removal(hamt_removal_t *rem) {
-	if (exact_str_match(rem->node->key, rem->key)) {
-		// TODO: SUCCESSFUL DELETE 
+
+/**
+ * Remove the node, as a modification if you passed through a free function
+ * from the top, you could then free your object here.
+ */
+static inline hamt_node_t *handle_leaf_removal(hamt_removal_t *rem) {
+	if (strcmp(rem->node->key, rem->key) == 0) {
+		// could free rem->node here
 		return NULL;
 	}
 
 	return rem->node;
 }
 
-static hamt_node_t *compress_array_to_branch(unsigned int idx, hamt_node_t **children) {
+
+/**
+ * Transform ArrayNode into a BranchNode. Setting each bit in the hash for
+ * where a child is not NULL.
+ *
+ * We alloc MIN_ARRAY_NODE_SIZE as inorder to have got here the lower bound
+ * limit for the ArrayNode must have been met.
+ */
+static inline hamt_node_t *compress_array_to_branch(unsigned int idx,
+		hamt_node_t **children) {
+
 	hamt_node_t **new_children = alloc_children(MIN_ARRAY_NODE_SIZE);
 	hamt_node_t *child = NULL;
 	int j = 0;
@@ -624,13 +669,13 @@ static hamt_node_t *compress_array_to_branch(unsigned int idx, hamt_node_t **chi
  * Or if the total number of children is less than `MIN_ARRAY_NODE_SIZE`
  * will compress the node to a branch node and create the branch node hash
  */
-static hamt_node_t *handle_arraynode_removal(hamt_removal_t *rem) {
+static inline hamt_node_t *handle_arraynode_removal(hamt_removal_t *rem) {
 	unsigned int idx = get_frag(rem->hash, rem->depth);
 
 	// the node we are looking at
 	hamt_node_t *array_node = rem->node;
 	// this is nasty as the bitmap is used for different things
-	// here is is just a counter with the number of elements in the array
+	// here it is just a counter with the number of elements in the array
 	// `children`
 	int size = array_node->bitmap;
 
@@ -662,6 +707,13 @@ static hamt_node_t *handle_arraynode_removal(hamt_removal_t *rem) {
 	return create_arraynode(array_node->children, array_node->bitmap);
 }
 
+/**
+ * Remove a node from the tree, the delete happens on the leaf or collision
+ * node layer.
+ *
+ * I've been testing this rather horribly with a counter to ensure the 466550
+ * from the test dictionary actually get removed.
+ */
 hamt_t *hamt_remove(hamt_t *hamt, char *key) {
 	unsigned int hash = get_hash(key);
 	hamt_removal_t rem;
