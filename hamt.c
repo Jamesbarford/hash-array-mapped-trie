@@ -93,8 +93,6 @@ static hamt_node_t *handle_branch_removal(hamt_removal_t *rem);
 static hamt_node_t *handle_leaf_removal(hamt_removal_t *rem);
 static hamt_node_t *handle_arraynode_removal(hamt_removal_t *rem);
 
-
-
 /*======= node constructors =====================*/
 static hamt_node_t *create_node(int hash, char *key, void *value,
 		enum NODE_TYPE type, hamt_node_t **children, unsigned long bitmap) {
@@ -250,7 +248,6 @@ static void insert_child(hamt_node_t *parent, hamt_node_t *child,
 	while (j < size) {
 		temp[i++] = parent->children[j++];
 	}
-
 	memcpy(parent->children, temp, sizeof(hamt_node_t *) * (size + 1));
 }
 
@@ -363,7 +360,7 @@ static hamt_node_t *expand_branch_to_array_node(int idx, hamt_node_t *child,
 	}
 
 	new_children[idx] = child;
-	return create_arraynode(new_children, SIZE);
+	return create_arraynode(new_children, count+1);
 }
 
 static hamt_node_t *handle_branch_insert(insert_instruction_t *ins) {
@@ -433,6 +430,7 @@ static hamt_node_t *handle_arraynode_insert(insert_instruction_t *ins) {
 	} else {
 		new_child = create_leaf(ins->hash, ins->key, ins->value);
 	}
+
 	replace_child(ins->node, new_child, frag);
 
 	if (child == NULL && new_child != NULL) {
@@ -533,6 +531,7 @@ static hamt_node_t *handle_collision_removal(hamt_removal_t *rem) {
 
 			if (exact_str_match(child->key, rem->key)) {
 				remove_child(rem->node, i, rem->node->bitmap);
+				// TODO: SUCCESSFUL DELETE 
 				if ((rem->node->bitmap - 1) > 1) {
 					return create_collision(rem->node->hash, rem->node->children,
 							rem->node->bitmap - 1);
@@ -592,19 +591,20 @@ static hamt_node_t *handle_branch_removal(hamt_removal_t *rem) {
 
 static hamt_node_t *handle_leaf_removal(hamt_removal_t *rem) {
 	if (exact_str_match(rem->node->key, rem->key)) {
+		// TODO: SUCCESSFUL DELETE 
 		return NULL;
 	}
 
 	return rem->node;
 }
 
-static hamt_node_t *compress_array_to_branch(unsigned int size, unsigned int idx, hamt_node_t **children) {
-	hamt_node_t **new_children = alloc_children(size - 1);
+static hamt_node_t *compress_array_to_branch(unsigned int idx, hamt_node_t **children) {
+	hamt_node_t **new_children = alloc_children(MIN_ARRAY_NODE_SIZE);
 	hamt_node_t *child = NULL;
 	int j = 0;
 	unsigned int hash = 0;
 
-	for (unsigned int i = 0; i < size; ++i) {
+	for (unsigned int i = 0; i < SIZE; ++i) {
 		if (i != idx) {
 			child = children[i];
 			if (child != NULL) {
@@ -652,7 +652,7 @@ static hamt_node_t *handle_arraynode_removal(hamt_removal_t *rem) {
 
 	if (child != NULL && new_child == NULL) {
 		if ((size - 1) <= MIN_ARRAY_NODE_SIZE) {
-			return compress_array_to_branch(size, idx, array_node->children);
+			return compress_array_to_branch(idx, array_node->children);
 		}
 		replace_child(array_node, NULL, idx);
 		return create_arraynode(array_node->children, array_node->bitmap - 1);
