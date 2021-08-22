@@ -31,11 +31,29 @@
 
 struct hamt_t;
 
+/* This is an example of a value type.  My idea is to create C macros
+which take the name of a type, and a hash function for that type, and
+then creates the required functions for creating a HAMT for that type.
+Thus your keys and values can be of any type, as long as you can
+produce a hash for the key type. Poor mans generics. */
+union uvalue {
+	char* string;
+	unsigned char u8;
+};
+enum runtime_type {
+	STRING,
+	U8
+};
+typedef struct Value {
+	enum runtime_type type;
+	union uvalue actual_value;
+} Value;
+
 struct hamt_t *create_hamt();
-struct hamt_t *hamt_set(struct hamt_t *hamt, char *key, void *value);
-struct hamt_t *hamt_remove(struct hamt_t *node, char *key);
-void *hamt_get(struct hamt_t *hamt, char *key);
+struct hamt_t *hamt_set(struct hamt_t *hamt, Value *key, void *value);
+struct hamt_t *hamt_remove(struct hamt_t *node, Value *key);
+void *hamt_get(struct hamt_t *hamt, Value *key);
 void print_hamt(struct hamt_t *hamt);
-void visit_all(struct hamt_t *hamt, void (*visitor)(char *key, void *value));
+void visit_all(struct hamt_t *hamt, void (*visitor)(Value *key, void *value));
 
 #endif

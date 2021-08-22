@@ -58,7 +58,7 @@ typedef struct hamt_node_t {
 	 * the total number of children held in the node
 	 */
 	int bitmap;
-	char *key;
+	Value *key;
 	void *value;
 	struct hamt_node_t **children;
 } hamt_node_t;
@@ -71,7 +71,7 @@ typedef struct hamt_t {
 typedef struct insert_instruction_t {
 	hamt_node_t *node;
 	unsigned int hash;
-	char *key;
+	Value *key;
 	void *value;
 	int depth;
 } insert_instruction_t;
@@ -85,7 +85,7 @@ static hamt_node_t *handle_arraynode_insert(insert_instruction_t *ins);
 typedef struct hamt_removal_t {
 	hamt_node_t *node;
 	unsigned int hash;
-	char *key;
+	Value *key;
 	int depth;
 } hamt_removal_t;
 
@@ -95,7 +95,7 @@ static hamt_node_t *handle_leaf_removal(hamt_removal_t *rem);
 static hamt_node_t *handle_arraynode_removal(hamt_removal_t *rem);
 
 /*======= node constructors =====================*/
-static hamt_node_t *create_node(int hash, char *key, void *value,
+static hamt_node_t *create_node(int hash, Value *key, void *value,
 		enum NODE_TYPE type, hamt_node_t **children, unsigned long bitmap) {
 	hamt_node_t *node;
 
@@ -125,7 +125,7 @@ hamt_t *create_hamt() {
 	return hamt;
 }
 
-static hamt_node_t *create_leaf(unsigned int hash, char *key, void *value) {
+static hamt_node_t *create_leaf(unsigned int hash, Value *key, void *value) {
 	return create_node(hash, key, value, LEAF, NULL, 0);
 }
 
@@ -149,7 +149,7 @@ static bool is_leaf(hamt_node_t *node) {
 
 /*======= hashing =========================*/
 /**
- * From Ideal hash trees Phil Bagley, page 3
+ * From Ideal hash trees Phil Bagwell, page 3
  * https://lampwww.epfl.ch/papers/idealhashtrees.pdf
  * Count number of bits in a number
  */
@@ -169,7 +169,7 @@ static inline int popcount(unsigned int bits) {
  * convert a string to a 32bit unsigned integer
  */
 static inline unsigned int get_hash(char *str) {
-	unsigned int hash = 0;	
+	unsigned int hash = 0;
 	char *ptr = str;
 
 	while (*ptr != '\0') {
@@ -177,6 +177,39 @@ static inline unsigned int get_hash(char *str) {
 	}
 
 	return hash;
+}
+
+static inline unsigned int get_hash_from_value(Value* value) {
+	/* unsigned int hash = 0; */
+	/* char* ptr = (char*) value; */
+	/* puts("about to hash"); */
+	/* for(size_t i = 0; i < sizeof(Value); i++) { */
+	/* 	hash = ((hash << BITS) - hash) + *(ptr++); */
+	/* } */
+	/* puts("done hashing"); */
+	/* return hash; */
+	// Alternative implementation:
+	// Make a custom hasher for each value - may be needed for hashmap and vector
+	switch (value->type) {
+	case STRING: return get_hash(value->actual_value.string);
+	case U8: return get_hash("U8");
+	}
+}
+
+static inline int value_equals(void* v0, void* v1) {
+	/* "Equality is the ideal of the ugly loser" */
+	Value* vptr0 = (Value*)v0;
+	Value* vptr1 = (Value*)v1;
+	Value val0 = *vptr0;
+	Value val1 = *vptr1;
+	if (val0.type == STRING && val1.type == STRING) {
+		return strcmp(val0.actual_value.string,
+									val1.actual_value.string) == 0;
+	} else if (val0.type == U8 && val1.type == U8) {
+		return val0.actual_value.u8 == val1.actual_value.u8;
+	} else {
+		return false; // Unequal type
+	}
 }
 
 static inline unsigned int get_mask(unsigned int frag) {
@@ -207,7 +240,7 @@ static hamt_node_t **alloc_children(int size) {
 	}
 
 	return children;
-}	
+}
 
 /*======= moving / inserting child nodes ==============*/
 /**
@@ -263,9 +296,9 @@ static inline void replace_child(hamt_node_t *node, hamt_node_t *child,
  * Function is just to split out the other methods
  * This is an atempt at polymorphism
  */
-static hamt_node_t *insert(hamt_node_t *node, unsigned int hash, char *key,
+static hamt_node_t *insert(hamt_node_t *node, unsigned int hash, Value *key,
 		void *value, int depth) {
-	
+
 	insert_instruction_t ins = {
 		.node  = node,
 		.key   = key,
@@ -278,7 +311,7 @@ static hamt_node_t *insert(hamt_node_t *node, unsigned int hash, char *key,
 		case LEAF:       return handle_leaf_insert(&ins);
 		case BRANCH:     return handle_branch_insert(&ins);
 		case COLLISON:   return handle_collision_insert(&ins);
-		case ARRAY_NODE: return handle_arraynode_insert(&ins); 
+		case ARRAY_NODE: return handle_arraynode_insert(&ins);
 		default:
 			return NULL;
 	}
@@ -322,13 +355,14 @@ static inline hamt_node_t *merge_leaves(unsigned int depth, unsigned int h1,
 
 /**
  * If what we are trying to insert matches key return a new LeafNode
- * 
+ *
  * If we got here and there is no match we need to transform the node
  * into a branch node using 'merge_leaves'
  */
 static inline hamt_node_t *handle_leaf_insert(insert_instruction_t *ins) {
 	hamt_node_t *new_child = create_leaf(ins->hash, ins->key, ins->value);
-	if (strcmp(ins->node->key, ins->key) == 0) {
+	if (value_equals(ins->node->key, ins->key)) {
+		/* if (strcmp(ins->node->key, ins->key) == 0) { */
 		return new_child;
 	}
 
@@ -356,10 +390,10 @@ static inline hamt_node_t *expand_branch_to_array_node(int idx, hamt_node_t *chi
 
 /**
  * If there is no node at the given index insert the child and update the hash.
- * 
+ *
  * If there is no node at ^   ^^     ^^   but the size is bigger than the
  * maximum capacity for a Branch, then expand into an ArrayNode
- * 
+ *
  * If the child exists in the slot recurse into the tree.
  */
 static inline hamt_node_t *handle_branch_insert(insert_instruction_t *ins) {
@@ -371,7 +405,7 @@ static inline hamt_node_t *handle_branch_insert(insert_instruction_t *ins) {
 	if (!exists) {
 		unsigned int size = popcount(ins->node->hash);
 		hamt_node_t *new_child = create_leaf(ins->hash, ins->key, ins->value);
-		
+
 		if (size >= MAX_BRANCH_SIZE) {
 			return expand_branch_to_array_node(frag, new_child, ins->node->hash,
 					ins->node->children);
@@ -401,14 +435,16 @@ static inline hamt_node_t *handle_branch_insert(insert_instruction_t *ins) {
  * Otherwise insert the node at the end of the collision node's children
  */
 static inline hamt_node_t *handle_collision_insert(insert_instruction_t *ins) {
-	unsigned int len = ins->node->bitmap;	
+	unsigned int len = ins->node->bitmap;
 	hamt_node_t *new_child = create_leaf(ins->hash, ins->key, ins->value);
 	hamt_node_t *collision_node = create_collision(ins->node->hash,
 			ins->node->children, ins->node->bitmap);
 
 	if (ins->hash == ins->node->hash) {
-		for (int i = 0; i < collision_node->bitmap; ++i) {	
-			if (strcmp(ins->node->children[i]->key, ins->key) == 0) {
+		for (int i = 0; i < collision_node->bitmap; ++i) {
+			if (value_equals(ins->node->children[i]->key,
+											 ins->key)) {
+			/* if (strcmp(ins->node->children[i]->key, ins->key) == 0) { */
 				replace_child(ins->node, new_child, i);
 				return collision_node;
 			}
@@ -456,10 +492,10 @@ static inline hamt_node_t *handle_arraynode_insert(insert_instruction_t *ins) {
 }
 
 /**
- * Return a new node 
+ * Return a new node
  */
-hamt_t *hamt_set(hamt_t *hamt, char *key, void *value) {
-	unsigned int hash = get_hash(key);	
+hamt_t *hamt_set(hamt_t *hamt, Value *key, void *value) {
+	unsigned int hash = get_hash_from_value(key);
 
 	if (hamt->root != NULL) {
 		hamt->root = insert(hamt->root, hash, key, value, 0);
@@ -473,8 +509,8 @@ hamt_t *hamt_set(hamt_t *hamt, char *key, void *value) {
 /**
  * Wind down the tree to the leaf node using the hash.
  */
-void *hamt_get(hamt_t *hamt, char *key) {
-	unsigned int hash = get_hash(key);
+void *hamt_get(hamt_t *hamt, Value *key) {
+	unsigned int hash = get_hash_from_value(key);
 	hamt_node_t *node = hamt->root;
 	int depth = 0;
 
@@ -501,14 +537,21 @@ void *hamt_get(hamt_t *hamt, char *key) {
 				int len = node->bitmap;
 				for (int i = 0; i < len; ++i) {
 					hamt_node_t *child = node->children[i];
-					if (child != NULL && strcmp(child->key, key) == 0)
+					if (child != NULL &&
+							value_equals(child->key,
+													 key)
+							/* strcmp(child->key, key) == 0 */)
 						return child->value;
-				}	
+				}
 				return NULL;
 			}
-	
+
 			case LEAF: {
-				if (node != NULL && strcmp(node->key, key) == 0) {
+				if (node != NULL &&
+						value_equals(node->key,
+												 key)
+						/* strcmp(node->key, key) == 0 */
+						) {
 					return node->value;
 				}
 				return NULL;
@@ -522,7 +565,7 @@ void *hamt_get(hamt_t *hamt, char *key) {
 				}
 				return NULL;
 			}
-		}	
+		}
 	}
 }
 
@@ -553,7 +596,9 @@ static inline hamt_node_t *handle_collision_removal(hamt_removal_t *rem) {
 		for (int i = 0; i < rem->node->bitmap; ++i) {
 			hamt_node_t *child = rem->node->children[i];
 
-			if (strcmp(child->key, rem->key) == 0) {
+			if (value_equals(child->key,
+											 rem->key)) {
+			/* if (strcmp(child->key, rem->key) == 0) { */
 				remove_child(rem->node, i, rem->node->bitmap);
 				// could free rem->node here
 				if ((rem->node->bitmap - 1) > 1) {
@@ -625,7 +670,9 @@ static inline hamt_node_t *handle_branch_removal(hamt_removal_t *rem) {
  * from the top, you could then free your object here.
  */
 static inline hamt_node_t *handle_leaf_removal(hamt_removal_t *rem) {
-	if (strcmp(rem->node->key, rem->key) == 0) {
+	if (value_equals(rem->node->key,
+									 rem->key)) {
+	/* if (strcmp(rem->node->key, rem->key) == 0) { */
 		// could free rem->node here
 		return NULL;
 	}
@@ -713,8 +760,8 @@ static inline hamt_node_t *handle_arraynode_removal(hamt_removal_t *rem) {
  * I've been testing this rather horribly with a counter to ensure the 466550
  * from the test dictionary actually get removed.
  */
-hamt_t *hamt_remove(hamt_t *hamt, char *key) {
-	unsigned int hash = get_hash(key);
+hamt_t *hamt_remove(hamt_t *hamt, Value *key) {
+	unsigned int hash = get_hash_from_value(key);
 	hamt_removal_t rem;
 	rem.hash = hash;
 	rem.depth = 0;
@@ -730,7 +777,7 @@ hamt_t *hamt_remove(hamt_t *hamt, char *key) {
 
 
 /*=========== Printing / visiting functions ====== */
-static void visit_all_nodes(hamt_node_t *hamt, void(*visitor)(char *key, void *value)) {
+static void visit_all_nodes(hamt_node_t *hamt, void(*visitor)(Value *key, void *value)) {
 	if (hamt) {
 		switch (hamt->type) {
 			case ARRAY_NODE:
@@ -757,13 +804,25 @@ static void visit_all_nodes(hamt_node_t *hamt, void(*visitor)(char *key, void *v
 	}
 }
 
-void visit_all(hamt_t *hamt, void (*visitor)(char *, void *)) {
+void visit_all(hamt_t *hamt, void (*visitor)(Value *, void *)) {
 	visit_all_nodes(hamt->root, visitor);
 }
 
-static void print_node(char *key, void *value) {
+static inline char* string_of_value(Value* vptr) {
+	Value val = *vptr;
+	if (val.type == STRING) {
+		return val.actual_value.string;
+	} else {
+		char* s = "";
+		s[0] = val.actual_value.u8;
+		s[1] = '\0';
+		return s;
+	}
+}
+
+static void print_node(Value *key, void *value) {
 	(void)value;
-	printf("key: %s\n", key);
+	printf("key: %s\n", string_of_value(key));
 }
 
 void print_hamt(hamt_t *hamt) {

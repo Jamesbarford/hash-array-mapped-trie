@@ -6,29 +6,128 @@
 #include <fcntl.h>
 #include <sys/stat.h>
 #include <sys/mman.h>
+#include <assert.h>
 
 #include "hamt.h"
+
+/* I want to add the functionality of having HAMT keys of any value,
+	 not only char* */
+Value* mkkey_string(char* cool_string) {
+  Value* v;
+  v = malloc(sizeof(Value));
+	v->type = STRING;
+	v->actual_value.string = cool_string;
+  return v;
+}
+Value* mkkey_u8(int cool_int) {
+   Value* v;
+   v = malloc(sizeof(Value));
+	 v->type = U8;
+	 v->actual_value.u8 = cool_int;
+   return v;
+}
+void* put_value_heap(Value v) {
+  void* ptr = malloc(sizeof(Value));
+  memcpy(ptr, (void*)&v, sizeof(Value));
+  return ptr;
+}
+void value_test() {
+  struct hamt_t* hamt = create_hamt();
+  Value value;
+  value.actual_value.u8 = 13;
+  value.actual_value.string = "HEllo";
+
+	hamt = hamt_set(hamt,
+									mkkey_u8(1337),
+									put_value_heap(value));
+
+  Value* gotten_value = hamt_get(hamt, mkkey_u8(1337));
+  printf("%s\n\n", gotten_value->actual_value.string);
+}
+
+void martins_test() {
+  struct hamt_t* hamt1 = create_hamt();
+  struct hamt_t* hamt2 = create_hamt();
+  hamt1 = hamt_set(hamt1,
+									 mkkey_string("hello"),
+									 "world");
+  char *value11 = (char *)hamt_get(hamt1,
+																	 mkkey_string("hello"));
+  printf("value11: %s\n", value11);
+	assert(strcmp(value11, "world") == 0);
+	char *value12 = (char *)hamt_get(hamt1,
+																	 mkkey_string("good night"));
+
+	printf("value12: %s\n", value12);
+	assert(value12 == NULL);
+	hamt2 = hamt_set(hamt1,
+									 mkkey_string("good night"),
+									 "friend");
+	char *value21 = (char *)hamt_get(hamt2,
+																	 mkkey_string("hello"));
+	printf("value21: %s\n", value21);
+	assert(strcmp(value21, "world") == 0);
+	char *value22 =  (char *)hamt_get(hamt2,
+																		mkkey_string("good night"));
+	printf("value22: %s\n", value22);
+	assert(strcmp(value22, "friend") == 0);
+
+	printf("value11: %s,\n value12: %s,\n value21: %s,\n value 22: %s\n",
+				 value11,
+				 value12,
+				 value21,
+				 value22);
+}
+
+void martins_test_int() {
+	struct hamt_t* hamt1 = create_hamt();
+  struct hamt_t* hamt2 = create_hamt();
+  hamt1 = hamt_set(hamt1,
+									 mkkey_u8(1337),
+									 "3l337");
+  char *value11 = (char *)hamt_get(hamt1,
+																	 mkkey_u8(1337));
+	printf("value11: %s\n", value11);
+	assert(strcmp(value11, "3l337") == 0);
+  char *value12 = (char *)hamt_get(hamt2,
+																	 mkkey_u8(6969));
+	printf("value12: %s\n", value12);
+	assert(value12 == NULL);
+  hamt2 = hamt_set(hamt1,
+									 mkkey_u8(6969),
+									 "buddy");
+  char *value21 = (char *)hamt_get(hamt2,
+																	 mkkey_u8(1337));
+	printf("value21: %s\n", value21);
+	assert(strcmp(value21, "buddy") == 0);
+  char *value22 = (char *)hamt_get(hamt_set(hamt2,
+																						mkkey_string("wooo dude"),
+																						"let's mix it up"),
+																	 mkkey_string("wooo dude"));
+	printf("value22: %s\n", value22);
+	assert(strcmp(value22, "let's mix it up") == 0);
+}
 
 void test_case_1() {
 	struct hamt_t *hamt = create_hamt();
 
-	hamt = hamt_set(hamt, "hello", "world");
-	hamt = hamt_set(hamt, "hey", "over there");
-	hamt = hamt_set(hamt, "hey2", "over there again");
-	char *value1 = (char *)hamt_get(hamt, "hello");
-	char *value2 = (char *)hamt_get(hamt, "hey");
-	char *value3 = (char *)hamt_get(hamt, "hey2");
-	printf("value1: %s\n", value1);
-	printf("value2: %s\n", value2);
-	printf("value3: %s\n", value3);
+  hamt = hamt_set(hamt, mkkey_string("hello"), "world");
+  hamt = hamt_set(hamt, mkkey_string("hey"), "over there");
+  hamt = hamt_set(hamt, mkkey_string("hey2"), "over there again");
+  char *value1 = (char *)hamt_get(hamt, mkkey_string("hello"));
+  char *value2 = (char *)hamt_get(hamt, mkkey_string("hey"));
+  char *value3 = (char *)hamt_get(hamt, mkkey_string("hey2"));
+  printf("value1: %s\n", value1);
+  printf("value2: %s\n", value2);
+  printf("value3: %s\n", value3);
 
-	hamt = hamt_set(hamt, "Aa", "collision 1");
-	hamt = hamt_set(hamt, "BB", "collision 2");
+  hamt = hamt_set(hamt, mkkey_string("Aa"), "collision 1");
+  hamt = hamt_set(hamt, mkkey_string("BB"), "collision 2");
 
-	char *collision_1 = (char *)hamt_get(hamt, "Aa");
-	char *collision_2 = (char *)hamt_get(hamt, "BB");
-	printf("collision value1: %s\n", collision_1);
-	printf("collision value2: %s\n", collision_2);
+  char *collision_1 = (char *)hamt_get(hamt, mkkey_string("Aa"));
+  char *collision_2 = (char *)hamt_get(hamt, mkkey_string("BB"));
+  printf("collision value1: %s\n", collision_1);
+  printf("collision value2: %s\n", collision_2);
 }
 
 void insert_dictionary(struct hamt_t **hamt, char *dictionary) {
@@ -38,7 +137,7 @@ void insert_dictionary(struct hamt_t **hamt, char *dictionary) {
 		if (*dictionary == '\n') {
 			*dictionary = '\0';
 			char *str = strdup(ptr);
-			*hamt = hamt_set(*hamt, str, str);
+			*hamt = hamt_set(*hamt, mkkey_string(str), str);
 			ptr = dictionary + 1;
 			*dictionary = '\n';
 		}
@@ -57,7 +156,7 @@ void dictionary_check(struct hamt_t *hamt, char *dictionary) {
 		if (*dictionary == '\n') {
 			*dictionary = '\0';
 
-			value = (char *)hamt_get(hamt, ptr);
+			value = (char *)hamt_get(hamt, mkkey_string(ptr));
 			if (value == NULL) {
 				missing_count++;
 			} else if(strcmp(value, ptr) != 0) {
@@ -83,7 +182,7 @@ void remove_all(struct hamt_t *hamt, char *dictionary) {
 		if (*dictionary == '\n') {
 			*dictionary = '\0';
 
-			hamt = hamt_remove(hamt, ptr);
+			hamt = hamt_remove(hamt, mkkey_string(ptr));
 			if (hamt == NULL) {
 				missing_count++;
 				goto failed;
@@ -118,7 +217,7 @@ void test_case_2(char *contents) {
 int main(void) {
 	int fd;
 	struct stat sb;
-	
+
 	if ((fd = open("./testing/dictionary.txt", O_RDONLY)) == -1) {
 		fprintf(stderr, "Failed to load file: %s\n", strerror(errno));
 		exit(EXIT_FAILURE);
@@ -134,6 +233,10 @@ int main(void) {
 		fprintf(stderr, "Failed to mmap file: %s\n", strerror(errno));
 		goto failed;
 	}
+
+	value_test();
+	martins_test();
+	martins_test_int();
 
 	test_case_1();
 	test_case_2(contents);
