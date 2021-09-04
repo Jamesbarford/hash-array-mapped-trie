@@ -244,6 +244,7 @@ int main(void) {
 
 	munmap(contents, sb.st_size);
 	close(fd);
+	exit(0);
 
 failed:
 	(void)close(fd);
