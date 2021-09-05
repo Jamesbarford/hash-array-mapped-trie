@@ -10,6 +10,65 @@
 
 #include "hamt.h"
 
+union uvalue {
+	char* string;
+	unsigned char u8;
+};
+enum runtime_type {
+	STRING,
+	U8
+};
+typedef struct Value {
+	enum runtime_type type;
+	union uvalue actual_value;
+} Value;
+
+static inline unsigned int get_hash_from_value(Value* value) {
+	/* unsigned int hash = 0; */
+	/* char* ptr = (char*) value; */
+	/* puts("about to hash"); */
+	/* for(size_t i = 0; i < sizeof(Value); i++) { */
+	/* 	hash = ((hash << BITS) - hash) + *(ptr++); */
+	/* } */
+	/* puts("done hashing"); */
+	/* return hash; */
+	// Alternative implementation: Make a custom hasher for each value -
+	// may be needed for hashmap and vector
+	switch (value->type) {
+	case STRING: return get_hash(value->actual_value.string);
+	case U8: return get_hash("U8");
+	}
+}
+static inline int value_equals(void* v0, void* v1) {
+	/* "Equality is the ideal of the ugly loser" */
+	Value* vptr0 = (Value*)v0;
+	Value* vptr1 = (Value*)v1;
+	Value val0 = *vptr0;
+	Value val1 = *vptr1;
+	if (val0.type == STRING && val1.type == STRING) {
+		return strcmp(val0.actual_value.string,
+									val1.actual_value.string) == 0;
+	} else if (val0.type == U8 && val1.type == U8) {
+		return val0.actual_value.u8 == val1.actual_value.u8;
+	} else {
+		return false; // Unequal type
+	}
+}
+
+/* static inline char* string_of_value(Value* vptr) { */
+/* 	Value val = *vptr; */
+/* 	if (val.type == STRING) { */
+/* 		return val.actual_value.string; */
+/* 	} else { */
+/* 		char* s = ""; */
+/* 		s[0] = val.actual_value.u8; */
+/* 		s[1] = '\0'; */
+/* 		return s; */
+/* 	} */
+/* } */
+
+HAMT_DEFINE(Value, get_hash_from_value, value_equals)
+
 /* I want to add the functionality of having HAMT keys of any value,
 	 not only char* */
 Value* mkkey_string(char* cool_string) {
@@ -106,6 +165,36 @@ void martins_test_int() {
 																	 mkkey_string("wooo dude"));
 	printf("value22: %s\n", value22);
 	assert(strcmp(value22, "let's mix it up") == 0);
+}
+
+/* For the next test we create a new key data structure.  This will
+	 demonstrate that we can use multiple different types of HAMTs */
+typedef struct Coolstr {
+	char str[20];
+} Coolstr;
+/* It must be able to check equality, for example when inserting with
+	 a hash collission */
+bool coolstr_equals(Coolstr* s0, Coolstr* s1) {
+	return strcmp(s0->str,
+								s1->str) == 0;
+}
+unsigned int get_hash_of_coolstr(Coolstr* s) {return get_hash(s->str);}
+/* This will actually define a bunch of function prefixed with Coolstr */
+HAMT_DEFINE(Coolstr, get_hash_of_coolstr, coolstr_equals)
+
+	void polymorphism_test() {
+
+	Coolstr* keyptr = malloc(sizeof(Coolstr));
+	strcpy(keyptr->str, "the key");
+
+	Coolstr_hamt_t* hamt = Coolstr_create_hamt();
+	hamt = Coolstr_hamt_set(hamt, keyptr, "polymorphic...");
+	char* value = (char*)Coolstr_hamt_get(hamt, keyptr);
+	printf("Polymorphism: Coolstr value = %s\n", value);
+	assert(strcmp(value, "polymorphic...") == 0);
+	hamt = Coolstr_hamt_remove(hamt, keyptr);
+	value = Coolstr_hamt_get(hamt, keyptr);
+	assert(value == NULL);
 }
 
 void test_case_1() {
@@ -237,6 +326,7 @@ int main(void) {
 	value_test();
 	martins_test();
 	martins_test_int();
+	polymorphism_test();
 
 	test_case_1();
 	test_case_2(contents);
