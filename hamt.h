@@ -49,11 +49,12 @@ typedef struct Value {
 	union uvalue actual_value;
 } Value;
 
-struct hamt_t *create_hamt();
-struct hamt_t *hamt_set(struct hamt_t *hamt, Value *key, void *value);
-struct hamt_t *hamt_remove(struct hamt_t *node, Value *key);
-void *hamt_get(struct hamt_t *hamt, Value *key);
-void print_hamt(struct hamt_t *hamt);
-void visit_all(struct hamt_t *hamt, void (*visitor)(Value *key, void *value));
+
+struct Value_hamt_t *Value_create_hamt();
+struct Value_hamt_t *Value_hamt_set(struct Value_hamt_t *hamt, Value *key, void *value);
+struct Value_hamt_t *Value_hamt_remove(struct Value_hamt_t *node, Value *key);
+void *Value_hamt_get(struct Value_hamt_t *hamt, Value *key);
+void Value_print_hamt(struct Value_hamt_t *hamt);
+void Value_visit_all(struct Value_hamt_t *hamt, void (*visitor)(Value *key, void *value));
 
 #endif

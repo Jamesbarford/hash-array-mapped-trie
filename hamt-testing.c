@@ -32,42 +32,42 @@ void* put_value_heap(Value v) {
   return ptr;
 }
 void value_test() {
-  struct hamt_t* hamt = create_hamt();
+  struct Value_hamt_t* hamt = Value_create_hamt();
   Value value;
   value.actual_value.u8 = 13;
   value.actual_value.string = "HEllo";
 
-	hamt = hamt_set(hamt,
+	hamt = Value_hamt_set(hamt,
 									mkkey_u8(1337),
 									put_value_heap(value));
 
-  Value* gotten_value = hamt_get(hamt, mkkey_u8(1337));
+  Value* gotten_value = Value_hamt_get(hamt, mkkey_u8(1337));
   printf("%s\n\n", gotten_value->actual_value.string);
 }
 
 void martins_test() {
-  struct hamt_t* hamt1 = create_hamt();
-  struct hamt_t* hamt2 = create_hamt();
-  hamt1 = hamt_set(hamt1,
+  struct Value_hamt_t* hamt1 = Value_create_hamt();
+  struct Value_hamt_t* hamt2 = Value_create_hamt();
+  hamt1 = Value_hamt_set(hamt1,
 									 mkkey_string("hello"),
 									 "world");
-  char *value11 = (char *)hamt_get(hamt1,
+  char *value11 = (char *)Value_hamt_get(hamt1,
 																	 mkkey_string("hello"));
   printf("value11: %s\n", value11);
 	assert(strcmp(value11, "world") == 0);
-	char *value12 = (char *)hamt_get(hamt1,
+	char *value12 = (char *)Value_hamt_get(hamt1,
 																	 mkkey_string("good night"));
 
 	printf("value12: %s\n", value12);
 	assert(value12 == NULL);
-	hamt2 = hamt_set(hamt1,
+	hamt2 = Value_hamt_set(hamt1,
 									 mkkey_string("good night"),
 									 "friend");
-	char *value21 = (char *)hamt_get(hamt2,
+	char *value21 = (char *)Value_hamt_get(hamt2,
 																	 mkkey_string("hello"));
 	printf("value21: %s\n", value21);
 	assert(strcmp(value21, "world") == 0);
-	char *value22 =  (char *)hamt_get(hamt2,
+	char *value22 =  (char *)Value_hamt_get(hamt2,
 																		mkkey_string("good night"));
 	printf("value22: %s\n", value22);
 	assert(strcmp(value22, "friend") == 0);
@@ -80,27 +80,27 @@ void martins_test() {
 }
 
 void martins_test_int() {
-	struct hamt_t* hamt1 = create_hamt();
-  struct hamt_t* hamt2 = create_hamt();
-  hamt1 = hamt_set(hamt1,
+	struct Value_hamt_t* hamt1 = Value_create_hamt();
+  struct Value_hamt_t* hamt2 = Value_create_hamt();
+  hamt1 = Value_hamt_set(hamt1,
 									 mkkey_u8(1337),
 									 "3l337");
-  char *value11 = (char *)hamt_get(hamt1,
+  char *value11 = (char *)Value_hamt_get(hamt1,
 																	 mkkey_u8(1337));
 	printf("value11: %s\n", value11);
 	assert(strcmp(value11, "3l337") == 0);
-  char *value12 = (char *)hamt_get(hamt2,
+  char *value12 = (char *)Value_hamt_get(hamt2,
 																	 mkkey_u8(6969));
 	printf("value12: %s\n", value12);
 	assert(value12 == NULL);
-  hamt2 = hamt_set(hamt1,
+  hamt2 = Value_hamt_set(hamt1,
 									 mkkey_u8(6969),
 									 "buddy");
-  char *value21 = (char *)hamt_get(hamt2,
+  char *value21 = (char *)Value_hamt_get(hamt2,
 																	 mkkey_u8(1337));
 	printf("value21: %s\n", value21);
 	assert(strcmp(value21, "buddy") == 0);
-  char *value22 = (char *)hamt_get(hamt_set(hamt2,
+  char *value22 = (char *)Value_hamt_get(Value_hamt_set(hamt2,
 																						mkkey_string("wooo dude"),
 																						"let's mix it up"),
 																	 mkkey_string("wooo dude"));
@@ -109,35 +109,35 @@ void martins_test_int() {
 }
 
 void test_case_1() {
-	struct hamt_t *hamt = create_hamt();
+	struct Value_hamt_t *hamt = Value_create_hamt();
 
-  hamt = hamt_set(hamt, mkkey_string("hello"), "world");
-  hamt = hamt_set(hamt, mkkey_string("hey"), "over there");
-  hamt = hamt_set(hamt, mkkey_string("hey2"), "over there again");
-  char *value1 = (char *)hamt_get(hamt, mkkey_string("hello"));
-  char *value2 = (char *)hamt_get(hamt, mkkey_string("hey"));
-  char *value3 = (char *)hamt_get(hamt, mkkey_string("hey2"));
+  hamt = Value_hamt_set(hamt, mkkey_string("hello"), "world");
+  hamt = Value_hamt_set(hamt, mkkey_string("hey"), "over there");
+  hamt = Value_hamt_set(hamt, mkkey_string("hey2"), "over there again");
+  char *value1 = (char *)Value_hamt_get(hamt, mkkey_string("hello"));
+  char *value2 = (char *)Value_hamt_get(hamt, mkkey_string("hey"));
+  char *value3 = (char *)Value_hamt_get(hamt, mkkey_string("hey2"));
   printf("value1: %s\n", value1);
   printf("value2: %s\n", value2);
   printf("value3: %s\n", value3);
 
-  hamt = hamt_set(hamt, mkkey_string("Aa"), "collision 1");
-  hamt = hamt_set(hamt, mkkey_string("BB"), "collision 2");
+  hamt = Value_hamt_set(hamt, mkkey_string("Aa"), "collision 1");
+  hamt = Value_hamt_set(hamt, mkkey_string("BB"), "collision 2");
 
-  char *collision_1 = (char *)hamt_get(hamt, mkkey_string("Aa"));
-  char *collision_2 = (char *)hamt_get(hamt, mkkey_string("BB"));
+  char *collision_1 = (char *)Value_hamt_get(hamt, mkkey_string("Aa"));
+  char *collision_2 = (char *)Value_hamt_get(hamt, mkkey_string("BB"));
   printf("collision value1: %s\n", collision_1);
   printf("collision value2: %s\n", collision_2);
 }
 
-void insert_dictionary(struct hamt_t **hamt, char *dictionary) {
+void insert_dictionary(struct Value_hamt_t **hamt, char *dictionary) {
 	char *ptr = dictionary;
 
 	while (*dictionary != '\0') {
 		if (*dictionary == '\n') {
 			*dictionary = '\0';
 			char *str = strdup(ptr);
-			*hamt = hamt_set(*hamt, mkkey_string(str), str);
+			*hamt = Value_hamt_set(*hamt, mkkey_string(str), str);
 			ptr = dictionary + 1;
 			*dictionary = '\n';
 		}
@@ -145,7 +145,7 @@ void insert_dictionary(struct hamt_t **hamt, char *dictionary) {
 	}
 }
 
-void dictionary_check(struct hamt_t *hamt, char *dictionary) {
+void dictionary_check(struct Value_hamt_t *hamt, char *dictionary) {
 	char *ptr = dictionary;
 	char *value;
 	int missing_count = 0;
@@ -156,7 +156,7 @@ void dictionary_check(struct hamt_t *hamt, char *dictionary) {
 		if (*dictionary == '\n') {
 			*dictionary = '\0';
 
-			value = (char *)hamt_get(hamt, mkkey_string(ptr));
+			value = (char *)Value_hamt_get(hamt, mkkey_string(ptr));
 			if (value == NULL) {
 				missing_count++;
 			} else if(strcmp(value, ptr) != 0) {
@@ -173,7 +173,7 @@ void dictionary_check(struct hamt_t *hamt, char *dictionary) {
 	printf("Present: %d\n", accounted_for);
 }
 
-void remove_all(struct hamt_t *hamt, char *dictionary) {
+void remove_all(struct Value_hamt_t *hamt, char *dictionary) {
 	char *ptr = dictionary;
 	int missing_count = 0;
 	int removal_count = 0;
@@ -182,7 +182,7 @@ void remove_all(struct hamt_t *hamt, char *dictionary) {
 		if (*dictionary == '\n') {
 			*dictionary = '\0';
 
-			hamt = hamt_remove(hamt, mkkey_string(ptr));
+			hamt = Value_hamt_remove(hamt, mkkey_string(ptr));
 			if (hamt == NULL) {
 				missing_count++;
 				goto failed;
@@ -204,7 +204,7 @@ failed:
 
 
 void test_case_2(char *contents) {
-	struct hamt_t *hamt = create_hamt();
+	struct Value_hamt_t *hamt = Value_create_hamt();
 
 	insert_dictionary(&hamt, strdup(contents));
 	dictionary_check(hamt, strdup(contents));

@@ -63,9 +63,9 @@ typedef struct hamt_node_t {
 	struct hamt_node_t **children;
 } hamt_node_t;
 
-typedef struct hamt_t {
+typedef struct Value_hamt_t {
 	hamt_node_t *root;
-} hamt_t;
+} Value_hamt_t;
 
 // Insertion methods
 typedef struct insert_instruction_t {
@@ -114,10 +114,10 @@ static hamt_node_t *create_node(int hash, Value *key, void *value,
 	return node;
 }
 
-hamt_t *create_hamt() {
-	hamt_t *hamt;
+Value_hamt_t *Value_create_hamt() {
+	Value_hamt_t *hamt;
 
-	if ((hamt = (hamt_t *)malloc(sizeof(hamt_t))) == NULL) {
+	if ((hamt = (Value_hamt_t *)malloc(sizeof(Value_hamt_t))) == NULL) {
 		fprintf(stderr, "Failed to allocate memory for hamt\n");
 	}
 
@@ -494,7 +494,7 @@ static inline hamt_node_t *handle_arraynode_insert(insert_instruction_t *ins) {
 /**
  * Return a new node
  */
-hamt_t *hamt_set(hamt_t *hamt, Value *key, void *value) {
+Value_hamt_t *Value_hamt_set(Value_hamt_t *hamt, Value *key, void *value) {
 	unsigned int hash = get_hash_from_value(key);
 
 	if (hamt->root != NULL) {
@@ -509,7 +509,7 @@ hamt_t *hamt_set(hamt_t *hamt, Value *key, void *value) {
 /**
  * Wind down the tree to the leaf node using the hash.
  */
-void *hamt_get(hamt_t *hamt, Value *key) {
+void *Value_hamt_get(Value_hamt_t *hamt, Value *key) {
 	unsigned int hash = get_hash_from_value(key);
 	hamt_node_t *node = hamt->root;
 	int depth = 0;
@@ -760,7 +760,7 @@ static inline hamt_node_t *handle_arraynode_removal(hamt_removal_t *rem) {
  * I've been testing this rather horribly with a counter to ensure the 466550
  * from the test dictionary actually get removed.
  */
-hamt_t *hamt_remove(hamt_t *hamt, Value *key) {
+Value_hamt_t *Value_hamt_remove(Value_hamt_t *hamt, Value *key) {
 	unsigned int hash = get_hash_from_value(key);
 	hamt_removal_t rem;
 	rem.hash = hash;
@@ -804,7 +804,7 @@ static void visit_all_nodes(hamt_node_t *hamt, void(*visitor)(Value *key, void *
 	}
 }
 
-void visit_all(hamt_t *hamt, void (*visitor)(Value *, void *)) {
+void visit_all(Value_hamt_t *hamt, void (*visitor)(Value *, void *)) {
 	visit_all_nodes(hamt->root, visitor);
 }
 
@@ -825,6 +825,6 @@ static void print_node(Value *key, void *value) {
 	printf("key: %s\n", string_of_value(key));
 }
 
-void print_hamt(hamt_t *hamt) {
+void print_hamt(Value_hamt_t *hamt) {
 	visit_all(hamt, print_node);
 }
